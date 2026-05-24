@@ -22,8 +22,9 @@
     handle /api/* {
         reverse_proxy 127.0.0.1:8000
     }
+    redir / /en/ 302
     handle {
-        try_files {path} {path}/index.html
+        try_files {path} {path}.html {path}/index.html
         file_server
     }
     log {
