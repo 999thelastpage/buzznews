@@ -162,5 +162,8 @@ async def pick_image(
     paths = _download_and_resize(image_url, [HERO_SIZE, CARD_SIZE, THUMB_SIZE], out_dir)
     hero_path = paths.get("hero")
     if hero_path:
-        return hero_path, credit
+        # Return a web-relative URL (Caddy serves from STATIC_DIR root),
+        # not the on-disk path -- otherwise <img src="/var/lib/..."> 404s.
+        hero_url = f"/images/{article_id}/{Path(hero_path).name}"
+        return hero_url, credit
     return None, None
