@@ -1,0 +1,22 @@
+[Unit]
+Description=BuzzNews background worker
+After=network.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=buzz
+Group=buzz
+WorkingDirectory=/opt/buzz-news
+EnvironmentFile=/opt/buzz-news/.env
+ExecStart=/opt/buzz-news/.venv/bin/python -m buzz_news run-worker
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/buzz-news/worker.log
+StandardError=append:/var/log/buzz-news/worker.err.log
+
+MemoryMax=350M
+CPUQuota=150%
+
+[Install]
+WantedBy=multi-user.target

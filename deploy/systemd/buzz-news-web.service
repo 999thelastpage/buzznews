@@ -1,0 +1,21 @@
+[Unit]
+Description=BuzzNews web (FastAPI/Uvicorn)
+After=network.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=buzz
+Group=buzz
+WorkingDirectory=/opt/buzz-news
+EnvironmentFile=/opt/buzz-news/.env
+ExecStart=/opt/buzz-news/.venv/bin/uvicorn buzz_news.web.app:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/buzz-news/web.log
+StandardError=append:/var/log/buzz-news/web.err.log
+
+MemoryMax=200M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<article>
+    <h1>{{ title }}</h1>
+    {% if hero_image_url %}
+    <figure>
+        <img src="{{ hero_image_url }}" alt="{{ title }}">
+        {% if hero_image_credit %}<figcaption>{{ hero_image_credit }}</figcaption>{% endif %}
+    </figure>
+    {% endif %}
+    <div class="body">{{ body }}</div>
+    <section class="sources">
+        <h3>{{ labels.source }}</h3>
+        <ul>
+        {% for source in sources %}
+            <li><a href="{{ source.url }}">{{ source.name }}</a></li>
+        {% endfor %}
+        </ul>
+    </section>
+</article>
+{% endblock %}

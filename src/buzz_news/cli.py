@@ -202,7 +202,15 @@ async def cmd_run_worker(args) -> int:
 
 
 async def cmd_run_web(args) -> int:
-    log.info("Run web — implement Phase 6 (FastAPI)")
+    import uvicorn
+    log.info("Starting web server on 127.0.0.1:8000...")
+    uvicorn.run(
+        "buzz_news.web.app:app",
+        host="127.0.0.1",
+        port=8000,
+        workers=1,
+        log_level="info",
+    )
     return 0
 
 

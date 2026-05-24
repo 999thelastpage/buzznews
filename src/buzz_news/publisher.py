@@ -67,7 +67,7 @@ def _render_home(articles: list[dict], lang: str) -> str:
         with open(template_path) as f:
             tpl = Template(f.read())
     else:
-        tpl = Template("Home page")
+        return "Home page"
     return tpl.render(lang=lang, articles=articles)
 
 

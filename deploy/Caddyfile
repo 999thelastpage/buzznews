@@ -1,0 +1,32 @@
+{$SITE_HOST} {
+    encode zstd gzip
+    root * /var/lib/buzz-news/static
+    @static {
+        path *.css *.js *.webp *.png *.svg *.ico
+    }
+    header @static {
+        Cache-Control "public, max-age=2592000, immutable"
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Content-Security-Policy "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+    handle /api/healthz {
+        respond "Not Found" 404
+    }
+    handle /api/buzz/* {
+        respond "Not Found" 404
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8000
+    }
+    handle {
+        try_files {path} {path}/index.html
+        file_server
+    }
+    log {
+        output file /var/log/caddy/access.log
+    }
+}

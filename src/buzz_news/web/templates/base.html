@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ title }}{% endblock %}</title>
+    <meta name="description" content="{{ description or '' }}">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ description or '' }}">
+    {% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
+    <meta property="og:type" content="article">
+    <meta property="og:locale" content="{{ lang == 'hi' and 'hi_IN' or 'en_US' }}">
+    <link rel="canonical" href="{{ canonical_url or '' }}">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js" defer></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="/{{ lang }}/">{{ labels.site_name }}</a>
+            <a href="/{{ lang }}/category/international">{{ labels.category }}</a>
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        <p>&copy; 2026 BuzzNews</p>
+    </footer>
+</body>
+</html>

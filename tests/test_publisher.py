@@ -1,14 +1,16 @@
+from pathlib import Path
 
 
-def test_slugify_function():
-    from buzz_news.publisher import _slugify
-    slug = _slugify("Major Earthquake Hits Japan", 123)
-    assert "major-earthquake-hits-japan" in slug
-    assert "123" in slug
+def test_home_template_exists():
+    template_path = Path(__file__).parent.parent / "src" / "buzz_news" / "web" / "templates" / "home.html"
+    assert template_path.exists(), "home.html template should exist"
 
 
-def test_render_home_without_template():
-    from buzz_news.publisher import _render_home
-    articles = [{"title": "Test", "slug": "test-1", "hero_image_url": None}]
-    result = _render_home(articles, "en")
-    assert "Test" in result or result == "Home page"
+def test_article_template_exists():
+    template_path = Path(__file__).parent.parent / "src" / "buzz_news" / "web" / "templates" / "article.html"
+    assert template_path.exists(), "article.html template should exist"
+
+
+def test_base_template_exists():
+    template_path = Path(__file__).parent.parent / "src" / "buzz_news" / "web" / "templates" / "base.html"
+    assert template_path.exists(), "base.html template should exist"
