@@ -38,6 +38,26 @@ def _slugify(title: str, cluster_id: int) -> str:
     return f"{base}-{cluster_id}"
 
 
+def _interleave_categories(articles: list[dict]) -> list[dict]:
+    """Reorder a score-ranked list so adjacent tiles have different categories.
+    Greedy: keep position 0 (the lead), then for each next slot prefer the
+    highest-scored remaining article whose category differs from the previous.
+    Fall back to highest-scored if every remaining article shares the previous
+    tile's category."""
+    if len(articles) <= 2:
+        return list(articles)
+    out = [articles[0]]
+    remaining = list(articles[1:])
+    while remaining:
+        prev_cat = out[-1].get("category")
+        pick_idx = next(
+            (i for i, a in enumerate(remaining) if a.get("category") != prev_cat),
+            0,
+        )
+        out.append(remaining.pop(pick_idx))
+    return out
+
+
 def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
     """Rank-based tile sizing per Design.md §2.1:
     top 1 → 2x2 (the lead), next up to 5 → 2x1, rest → 1x1.
@@ -69,6 +89,7 @@ def _render(template_name: str, **ctx) -> str:
 
 def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, today_str: str) -> str:
     articles = _compute_tile_sizes(articles)
+    articles = _interleave_categories(articles)
     labels = _get_labels(lang)
     return _render(
         "home.html",
@@ -142,13 +163,17 @@ async def render_home_pages(limit: int = 22) -> int:
     """Render <STATIC_DIR>/{en,hi}/index.html with the top N published articles.
     Returns the number of language files written."""
     async with async_session_factory() as session:
+        # Cluster.category is more current than Article.category (the latter
+        # is frozen at publish time; clusters get re-categorized later).
+        # Skip articles whose title screams "LLM extraction failure".
+        garbage_phrases = ("Unavailable", "Access Restrictions", "Inaccessible")
         result = await session.execute(
             select(
                 Article.id,
                 Article.slug,
                 Article.title_en,
                 Article.title_hi,
-                Article.category,
+                Cluster.category.label("category"),
                 Article.region,
                 Article.hero_image_url,
                 Article.published_at,
@@ -156,6 +181,7 @@ async def render_home_pages(limit: int = 22) -> int:
                 Cluster.source_count,
             )
             .join(Cluster, Article.cluster_id == Cluster.id)
+            .where(*[~Article.title_en.contains(p) for p in garbage_phrases])
             .order_by(Cluster.current_score.desc())
             .limit(limit)
         )

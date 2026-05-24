@@ -29,15 +29,15 @@
 
 {# ===== CAT CLASS ===== #}
 {% macro cat_c(cat) -%}
-{% if cat == 'international' %}s-intl{% elif cat == 'politics' %}s-pol{% elif cat == 'business' %}s-biz{% elif cat == 'technology' %}s-tech{% elif cat == 'sports' %}s-sport{% elif cat == 'film' %}s-film{% elif cat == 'science' %}s-sci{% else %}s-gen{% endif %}
+{% if cat in ('international', 'intl') %}s-intl{% elif cat in ('politics', 'pol') %}s-pol{% elif cat in ('business', 'biz') %}s-biz{% elif cat in ('technology', 'tech') %}s-tech{% elif cat in ('sports', 'sport') %}s-sport{% elif cat == 'film' %}s-film{% elif cat in ('science', 'sci') %}s-sci{% else %}s-gen{% endif %}
 {%- endmacro %}
 
 {% macro cat_k(cat) -%}
-{% if cat == 'international' %}k-intl{% elif cat == 'politics' %}k-pol{% elif cat == 'business' %}k-biz{% elif cat == 'technology' %}k-tech{% elif cat == 'sports' %}k-sport{% elif cat == 'film' %}k-film{% elif cat == 'science' %}k-sci{% else %}k-gen{% endif %}
+{% if cat in ('international', 'intl') %}k-intl{% elif cat in ('politics', 'pol') %}k-pol{% elif cat in ('business', 'biz') %}k-biz{% elif cat in ('technology', 'tech') %}k-tech{% elif cat in ('sports', 'sport') %}k-sport{% elif cat == 'film' %}k-film{% elif cat in ('science', 'sci') %}k-sci{% else %}k-gen{% endif %}
 {%- endmacro %}
 
 {% macro cat_name(cat, labels) -%}
-{% if cat == 'international' %}{{ labels.cat_intl }}{% elif cat == 'politics' %}{{ labels.cat_politics }}{% elif cat == 'business' %}{{ labels.cat_business }}{% elif cat == 'technology' %}{{ labels.cat_tech }}{% elif cat == 'sports' %}{{ labels.cat_sports }}{% elif cat == 'film' %}{{ labels.cat_film }}{% elif cat == 'science' %}{{ labels.cat_science }}{% else %}{{ labels.cat_general }}{% endif %}
+{% if cat in ('international', 'intl') %}{{ labels.cat_intl }}{% elif cat in ('politics', 'pol') %}{{ labels.cat_politics }}{% elif cat in ('business', 'biz') %}{{ labels.cat_business }}{% elif cat in ('technology', 'tech') %}{{ labels.cat_tech }}{% elif cat in ('sports', 'sport') %}{{ labels.cat_sports }}{% elif cat == 'film' %}{{ labels.cat_film }}{% elif cat in ('science', 'sci') %}{{ labels.cat_science }}{% else %}{{ labels.cat_general }}{% endif %}
 {%- endmacro %}
 
 {# ===== MOSAIC TILE ===== #}
@@ -50,7 +50,7 @@
   <div class="tile__cat">
     <span>
       {% if is_hot %}<span class="hot" aria-hidden="true"></span>{% endif %}
-      <span class="{{ cat_k(c) }}">{{ cat_name(c, labels) }}</span>
+      {% if size == '2x2' %}<span>{{ cat_name(c, labels) }}</span>{% else %}<span class="{{ cat_k(c) }}">{{ cat_name(c, labels) }}</span>{% endif %}
     </span>
     <span class="tile__cat-time">{{ reltime(art.published_at, lang) }}</span>
   </div>
