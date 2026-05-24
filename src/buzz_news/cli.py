@@ -75,12 +75,21 @@ async def cmd_fetch_once(args) -> int:
 
 
 async def cmd_embed_once(args) -> int:
-    log.info("Embed once — implement Phase 2")
+    from buzz_news.clusterer import embed_unclustered_items
+    log.info("Embedding unclustered items...")
+    count = await embed_unclustered_items()
+    log.info(f"Embedded {count} items")
     return 0
 
 
 async def cmd_cluster_once(args) -> int:
-    log.info("Cluster once — implement Phase 2")
+    from buzz_news.clusterer import run_once, sanity_sweep
+    log.info("Running cluster cycle...")
+    count = await run_once()
+    log.info(f"Clustered {count} items")
+    log.info("Running sanity sweep...")
+    merged = await sanity_sweep()
+    log.info(f"Sanity sweep merged {merged} clusters")
     return 0
 
 
@@ -120,7 +129,16 @@ async def cmd_backfill_rollups(args) -> int:
 
 
 async def cmd_split_cluster(args) -> int:
-    log.info("Split cluster — implement Phase 2")
+    from buzz_news.clusterer import split_cluster
+    if args.cluster_id is None:
+        log.error("split-cluster requires a cluster_id argument")
+        return 1
+    item_ids = []
+    if args.items:
+        item_ids = [int(x.strip()) for x in args.items.split(",")]
+    log.info(f"Splitting cluster {args.cluster_id}, detaching items: {item_ids}")
+    count = await split_cluster(args.cluster_id, item_ids)
+    log.info(f"Detached {count} items into new cluster")
     return 0
 
 
