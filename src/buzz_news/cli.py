@@ -135,12 +135,35 @@ async def cmd_write_once(args) -> int:
 
 
 async def cmd_publish_once(args) -> int:
-    log.info("Publish once — implement Phase 5")
+    from buzz_news.publisher import publish_top_n
+    log.info("Running publish cycle...")
+    n = await publish_top_n(settings.TOP_N_PER_CYCLE)
+    log.info(f"Published {n} articles")
     return 0
 
 
 async def cmd_republish_today(args) -> int:
-    log.info("Republish today — implement Phase 5")
+    from datetime import datetime as dt, timezone as tz
+    from buzz_news.publisher import publish_top_n
+    from buzz_news.models import Article
+    from buzz_news.db import async_session_factory
+    from sqlalchemy import select
+
+    log.info("Republishing today's articles...")
+    today_start = dt.now(tz.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Article).where(Article.published_at >= today_start)
+        )
+        articles = list(result.scalars().all())
+
+    republished = 0
+    for art in articles:
+        await publish_top_n(1)
+        republished += 1
+
+    log.info(f"Republished {republished} articles")
     return 0
 
 
