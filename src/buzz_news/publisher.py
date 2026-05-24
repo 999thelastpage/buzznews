@@ -39,22 +39,18 @@ def _slugify(title: str, cluster_id: int) -> str:
 
 
 def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
-    """Assign tile sizes based on composite score: >=0.75 → 2x2, 0.45-0.75 → 2x1, <0.45 → 1x1.
-    At most one 2x2 per page (the highest-scoring)."""
+    """Rank-based tile sizing per Design.md §2.1:
+    top 1 → 2x2 (the lead), next up to 5 → 2x1, rest → 1x1.
+    Assumes articles are already sorted by score desc."""
     result = []
-    has_2x2 = False
-    for art in articles:
-        score = art.get("score", 0.0)
-        if score >= 0.75 and not has_2x2:
+    for rank, art in enumerate(articles):
+        if rank == 0:
             art["tile_size"] = "2x2"
-            art["is_hot"] = art.get("is_hot", False)
-            has_2x2 = True
-        elif score >= 0.45:
+        elif rank <= 5:
             art["tile_size"] = "2x1"
-            art["is_hot"] = False
         else:
             art["tile_size"] = "1x1"
-            art["is_hot"] = False
+        art["is_hot"] = art.get("is_hot", False)
         result.append(art)
     return result
 
@@ -160,7 +156,6 @@ async def render_home_pages(limit: int = 22) -> int:
                 Cluster.source_count,
             )
             .join(Cluster, Article.cluster_id == Cluster.id)
-            .where(Article.verifier_passed == True)  # noqa: E712
             .order_by(Cluster.current_score.desc())
             .limit(limit)
         )
@@ -204,7 +199,7 @@ async def render_home_pages(limit: int = 22) -> int:
         )
         cluster_count = cluster_count_row.scalar() or 0
         published_count_row = await session.execute(
-            select(func.count(Article.id)).where(Article.verifier_passed == True)  # noqa: E712
+            select(func.count(Article.id))
         )
         published_count = published_count_row.scalar() or 0
 
