@@ -57,10 +57,10 @@
   <h2 class="tile__title">{{ title }}</h2>
   <div class="tile__src">
     {% if size == '2x2' %}
-      {% for s in srcs %}<strong>{{ s }}</strong{% if not loop.last %} · {% endif %}{% endfor %}
+      {% for s in srcs %}<strong>{{ s }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
       {% if n > 3 %} · +{{ n - 3 }} sources{% endif %}
     {% elif size == '2x1' %}
-      {% for s in srcs[:2] %}<strong>{{ s }}</strong{% if not loop.last %} · {% endif %}{% endfor %}
+      {% for s in srcs[:2] %}<strong>{{ s }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
       {% if n > 2 %} · +{{ n - 2 }}{% endif %}
     {% else %}
       {{ n }} {% if lang == 'hi' %}स्रोत{% else %}src{% endif %}
