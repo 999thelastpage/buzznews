@@ -1,6 +1,31 @@
 {# Combined tokens + components CSS — inlined in <head> per Design.md §6 #}
 <style>
-{% include "static/tokens.css" ignore missing %}
+:root {
+  --paper: #F4F0E8; --paper-2: #EDE7DC; --paper-3: #E4DDD0;
+  --ink: #1A1614; --ink-soft: #3D3530; --ink-2: #0E0B09;
+  --muted: #807771; --muted-2: #A39A92;
+  --hairline: rgba(26,22,20,0.10); --hairline-2: rgba(26,22,20,0.05);
+  --accent: #A8421E; --buzz: #C44830;
+  --c-intl: #2E5C8A; --c-pol: #6B3A8C; --c-biz: #2D6B4F; --c-tech: #B8651F;
+  --c-sport: #A8421E; --c-film: #8C3A5C; --c-sci: #4A6B8C; --c-gen: #5C5048;
+  --serif: "Iowan Old Style", "Apple Garamond", Constantia, Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --rail: 14px; --gap: 6px; --measure: 760px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14110E; --paper-2: #1B1714; --paper-3: #221D19;
+    --ink: #E8E2D6; --ink-soft: #C9C0B0; --ink-2: #050403;
+    --muted: #8A837A; --muted-2: #6D665E;
+    --hairline: rgba(232,226,214,0.14); --hairline-2: rgba(232,226,214,0.06);
+    --accent: #E07A5F; --buzz: #E55339;
+    --c-intl: #6D9CD0; --c-pol: #B084D0; --c-biz: #7BC09A;
+    --c-tech: #E0A26B; --c-sport: #E07A5F; --c-film: #D08AA8;
+    --c-sci: #8FB0D0; --c-gen: #A89C90;
+  }
+}
+@media (min-width: 720px) { :root { --rail: 24px; } }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
 body { font-family: var(--serif); font-size: 16px; line-height: 1.5; color: var(--ink); background: var(--paper); -webkit-font-smoothing: antialiased; font-feature-settings: "kern", "liga"; }
