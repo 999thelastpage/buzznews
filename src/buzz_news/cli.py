@@ -106,7 +106,31 @@ async def cmd_score_once(args) -> int:
 
 
 async def cmd_write_once(args) -> int:
-    log.info("Write once — implement Phase 4")
+    from buzz_news.writer import write_article
+    from buzz_news.db import async_session_factory
+    from buzz_news.models import Cluster
+    from sqlalchemy import select
+
+    log.info("Running write cycle...")
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Cluster)
+            .where(not Cluster.is_published)
+            .order_by(Cluster.current_score.desc())
+            .limit(settings.TOP_N_PER_CYCLE)
+        )
+        clusters = list(result.scalars().all())
+
+    written = 0
+    for cluster in clusters:
+        draft = await write_article(cluster.id)
+        if not draft:
+            log.warning(f"No draft generated for cluster {cluster.id}")
+            continue
+        log.info(f"Wrote article for cluster {cluster.id}: EN title='{draft.title_en}'")
+        written += 1
+
+    log.info(f"Write cycle complete: {written} articles drafted")
     return 0
 
 
