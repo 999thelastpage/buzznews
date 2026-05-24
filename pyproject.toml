@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "buzz-news"
+version = "0.1.0"
+description = "Multi-source news aggregation and synthesis site"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "psycopg2-binary",
+    "alembic",
+    "redis",
+    "httpx",
+    "feedparser",
+    "trafilatura",
+    "pydantic-settings",
+    "python-dotenv",
+    "apscheduler",
+    "jinja2",
+    "datasketch",
+    "numpy",
+    "google-genai",
+    "anthropic",
+    "pyyaml",
+    "python-slugify",
+    "feedgen",
+    "pgvector",
+    "langid",
+    "tenacity",
+    "Pillow",
+    "slowapi",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "httpx[cli]",
+    "respx",
+]
+
+[project.scripts]
+buzz-news = "buzz_news.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
