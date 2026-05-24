@@ -90,6 +90,36 @@ async def cmd_seed_sources(args) -> int:
     return 0
 
 
+async def cmd_deploy_static(args) -> int:
+    """Copy bundled static assets (robots.txt, privacy.html) into STATIC_DIR.
+    Idempotent — safe to run on every deploy."""
+    import shutil
+    from pathlib import Path
+    import buzz_news as pkg
+
+    src_root = Path(pkg.__file__).parent / "web" / "static"
+    dst_root = Path(settings.STATIC_DIR)
+    # (source path relative to web/static/, destination path relative to STATIC_DIR)
+    pairs = [
+        ("robots.txt", "robots.txt"),
+        ("privacy.html", "en/privacy.html"),
+        ("hi/privacy.html", "hi/privacy.html"),
+    ]
+    copied = 0
+    for src_rel, dst_rel in pairs:
+        src = src_root / src_rel
+        dst = dst_root / dst_rel
+        if not src.exists():
+            log.warning(f"deploy-static: source missing {src}")
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        log.info(f"deploy-static: {src} → {dst}")
+        copied += 1
+    log.info(f"deploy-static: {copied} files copied")
+    return 0
+
+
 async def cmd_preflight(args) -> int:
     from buzz_news.config import get_settings
     s = get_settings()
@@ -346,6 +376,7 @@ COMMANDS = {
     "migrate": cmd_migrate,
     "seed-sources": cmd_seed_sources,
     "preflight": cmd_preflight,
+    "deploy-static": cmd_deploy_static,
     "fetch-once": cmd_fetch_once,
     "embed-once": cmd_embed_once,
     "cluster-once": cmd_cluster_once,

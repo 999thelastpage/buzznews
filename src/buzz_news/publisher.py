@@ -301,7 +301,9 @@ async def publish_top_n(n: int = 10) -> int:
         if verifier_passed:
             hero_url, hero_credit = await pick_image(cluster.id, draft.title_en, draft.body_en)
 
-        slug = _slugify(draft.title_en, cluster.id)
+        # Reuse existing slug on republish so URLs stay stable across LLM
+        # title rewordings; only compute a fresh slug for brand-new articles.
+        slug = existing.slug if existing else _slugify(draft.title_en, cluster.id)
 
         async with async_session_factory() as session:
             cat_result = await session.execute(
@@ -345,8 +347,13 @@ async def publish_top_n(n: int = 10) -> int:
 
         async with async_session_factory() as session:
             if existing:
-                for key, val in article_record.items():
-                    setattr(existing, key, val)
+                # `existing` was loaded in a prior session and is detached;
+                # setattr on a detached object never persists. Use UPDATE.
+                await session.execute(
+                    update(Article)
+                    .where(Article.id == existing.id)
+                    .values(**article_record)
+                )
                 art_id = existing.id
             else:
                 art = Article(**article_record)
