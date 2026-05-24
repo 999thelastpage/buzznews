@@ -29,8 +29,10 @@ async def cmd_migrate(args) -> int:
 
 
 async def cmd_seed_sources(args) -> int:
+    from scripts.seed_sources import seed_sources
     log.info("Seeding sources from catalog...")
-    log.info("Placeholder: implement after sources/catalog.yaml and seed_sources.py exist")
+    count = await seed_sources()
+    log.info(f"Seeded {count} sources")
     return 0
 
 
@@ -65,7 +67,10 @@ async def cmd_preflight(args) -> int:
 
 
 async def cmd_fetch_once(args) -> int:
-    log.info("Fetch once — implement Phase 1")
+    from buzz_news.fetcher import run_once
+    log.info("Running fetch cycle...")
+    count = await run_once()
+    log.info(f"Fetch cycle complete: {count} new items")
     return 0
 
 

@@ -1,1 +1,201 @@
-# Sources catalog — populated in Phase 1
+sources:
+  # ---------- English / global wires ----------
+  - slug: bbc_world
+    name: BBC News — World
+    url: https://feeds.bbci.co.uk/news/world/rss.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.90
+  - slug: bbc_business
+    name: BBC News — Business
+    url: https://feeds.bbci.co.uk/news/business/rss.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: business
+    authority: 0.90
+  - slug: bbc_tech
+    name: BBC News — Technology
+    url: https://feeds.bbci.co.uk/news/technology/rss.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: tech
+    authority: 0.90
+  - slug: reuters_world
+    name: Reuters — World
+    url: https://www.reuters.com/world/rss
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.95
+  - slug: aljazeera_en
+    name: Al Jazeera English
+    url: https://www.aljazeera.com/xml/rss/all.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.85
+  - slug: ap_topnews
+    name: Associated Press — Top News
+    url: https://apnews.com/index.rss
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.95
+
+  # ---------- India-focused English ----------
+  - slug: thehindu_national
+    name: The Hindu — National
+    url: https://www.thehindu.com/news/national/feeder/default.rss
+    kind: rss
+    language: en
+    region: IN
+    category: politics
+    authority: 0.85
+  - slug: thehindu_business
+    name: The Hindu — Business
+    url: https://www.thehindu.com/business/feeder/default.rss
+    kind: rss
+    language: en
+    region: IN
+    category: business
+    authority: 0.80
+  - slug: thehindu_sport
+    name: The Hindu — Sport
+    url: https://www.thehindu.com/sport/feeder/default.rss
+    kind: rss
+    language: en
+    region: IN
+    category: sports
+    authority: 0.80
+  - slug: indianexpress_india
+    name: Indian Express — India
+    url: https://indianexpress.com/section/india/feed/
+    kind: rss
+    language: en
+    region: IN
+    category: politics
+    authority: 0.80
+  - slug: scroll_in
+    name: Scroll.in
+    url: https://scroll.in/feed
+    kind: rss
+    language: en
+    region: IN
+    category: general
+    authority: 0.70
+  - slug: ndtv_topstories
+    name: NDTV — Top Stories
+    url: https://feeds.feedburner.com/ndtvnews-top-stories
+    kind: rss
+    language: en
+    region: IN
+    category: general
+    authority: 0.70
+
+  # ---------- Hindi ----------
+  - slug: bbc_hindi
+    name: BBC Hindi
+    url: https://feeds.bbci.co.uk/hindi/rss.xml
+    kind: rss
+    language: hi
+    region: IN
+    category: general
+    authority: 0.90
+  - slug: ndtv_hindi
+    name: NDTV Hindi
+    url: https://feeds.feedburner.com/ndtvkhabar-latest
+    kind: rss
+    language: hi
+    region: IN
+    category: general
+    authority: 0.70
+  - slug: aajtak_home
+    name: Aaj Tak — Home
+    url: https://www.aajtak.in/rssfeeds/?id=home
+    kind: rss
+    language: hi
+    region: IN
+    category: general
+    authority: 0.60
+    is_tabloid: true
+  - slug: jagran_news
+    name: Dainik Jagran — News
+    url: https://www.jagran.com/rss/news/national.xml
+    kind: rss
+    language: hi
+    region: IN
+    category: general
+    authority: 0.65
+
+  # ---------- APIs ----------
+  - slug: hn_top
+    name: Hacker News — Top
+    url: https://hacker-news.firebaseio.com/v0/topstories.json
+    kind: hn
+    language: en
+    region: GLOBAL
+    category: tech
+    authority: 0.70
+  - slug: reddit_worldnews
+    name: Reddit — r/worldnews
+    url: https://www.reddit.com/r/worldnews/top.json?t=hour&limit=25
+    kind: reddit
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.40
+  - slug: reddit_india
+    name: Reddit — r/india
+    url: https://www.reddit.com/r/india/top.json?t=hour&limit=25
+    kind: reddit
+    language: en
+    region: IN
+    category: general
+    authority: 0.40
+
+  # ---------- GDELT ----------
+  - slug: gdelt_latest
+    name: GDELT — Latest English
+    url: https://api.gdeltproject.org/api/v2/doc/doc?query=sourcelang%3Aenglish&mode=ArtList&format=json&maxrecords=75&sort=DateDesc
+    kind: gdelt
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.60
+
+  # ---------- Tavily (via OpenClaw skill) ----------
+  - slug: tavily_breaking_global
+    name: Tavily — Breaking News (Global)
+    url: openclaw://skill/openclaw-tavily-search
+    kind: tavily
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.55
+    extra:
+      query: "breaking news today"
+      max_results: 20
+      include_domains: []
+      exclude_domains: ["pinterest.com", "youtube.com"]
+      search_depth: "basic"
+      cadence_minutes: 90
+  - slug: tavily_breaking_india
+    name: Tavily — Breaking News (India)
+    url: openclaw://skill/openclaw-tavily-search
+    kind: tavily
+    language: en
+    region: IN
+    category: general
+    authority: 0.55
+    extra:
+      query: "India breaking news today"
+      max_results: 20
+      search_depth: "basic"
+      cadence_minutes: 90

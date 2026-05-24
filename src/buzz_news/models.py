@@ -9,9 +9,8 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     Text,
-    JSONB,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION
+from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 import enum
 
