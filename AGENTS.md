@@ -9,9 +9,9 @@ Canonical spec: `PROJECT_PLAN.md` (~1450 lines). Read it before any tool call. T
 - **No Node.js in the BuzzNews runtime path.** OpenClaw is the only Node process and it's pre-installed.
 - **No client-side React.** HTMX + Alpine.js + Jinja2 only.
 - **BuzzNews is Python 3.12 only.** FastAPI + Uvicorn + SQLAlchemy (async) + APScheduler.
-- **OpenClaw is already running at `127.0.0.1:18789`.** Do not install, start, stop, restart, or supervise it. No `deploy/systemd/openclaw.service`.
-- **App user is `buzz`.** Run pipeline commands as `sudo -u buzz …` not root.
-- **Never commit `.env`.** It must be `chmod 600` owned by `buzz`.
+- **OpenClaw is already running at `127.0.0.1:19262`** (the original spec said 18789 — that's stale; check `ss -tlnp` to confirm). basePath `/oi8dhw`. Do not install, start, stop, restart, or supervise it. No `deploy/systemd/openclaw.service`.
+- **App user is `ubuntu`** (deploy chose to skip the `buzz` user migration). Run pipeline commands as the ubuntu user or simply from the repo's `.venv`.
+- **Never commit `.env`.** It must be `chmod 600` owned by `ubuntu`. `sed -i` run as root re-owns it to root:root — always `sudo chown ubuntu:ubuntu` after editing as a different user.
 
 ## Memory budget (1.9 GB VPS)
 
@@ -31,8 +31,10 @@ If < 700 MB available before installing something heavy, stop and investigate.
 ## Project layout
 
 ```
-/opt/buzz-news/           # final home (created during provisioning)
+/home/ubuntu/buzznews/    # actual deploy (the /opt/buzz-news/ migration was deferred)
 src/buzz_news/
+  __main__.py             # python -m buzz_news entry shim
+  __init__.py
   sources/                # adapters: rss.py, reddit.py, hn.py, gdelt.py, tavily.py
   fetcher.py             # orchestrates one fetch cycle
   normalizer.py           # trafilatura + OpenClaw browser fallback
@@ -68,6 +70,7 @@ scripts/
 python -m buzz_news migrate
 python -m buzz_news seed-sources
 python -m buzz_news preflight          # validates .env, aborts on critical missing values
+python -m buzz_news deploy-static      # copy robots.txt, privacy.html (en+hi) into STATIC_DIR
 
 # Pipeline single-shot (in order for a full cycle)
 python -m buzz_news fetch-once
@@ -89,7 +92,7 @@ python -m buzz_news run-worker          # APScheduler + all background jobs
 python -m buzz_news run-web             # FastAPI/Uvicorn on 127.0.0.1:8000
 ```
 
-Run all `buzz_news` commands as `sudo -u buzz /opt/buzz-news/.venv/bin/python -m buzz_news …`.
+Run all `buzz_news` commands from `/home/ubuntu/buzznews` as ubuntu — `.venv/bin/python -m buzz_news …`. The `__main__.py` shim is required for `-m` to work; without it the package errors with "cannot be directly executed".
 
 ## Lint / typecheck / test order
 
@@ -129,6 +132,12 @@ pytest -q
 
 ## Architecture quirks
 
+- **Hero image URL convention**: `imager.pick_image()` returns a web-relative URL like `/images/{cluster_id}/hero.webp` (NOT the on-disk absolute path). Caddy serves these from `STATIC_DIR`. Returning the disk path will silently render broken `<img src="/var/lib/...">` tags.
+- **Slug stability**: `publisher.publish_top_n` reuses `existing.slug` on republish instead of recomputing from `_slugify(draft.title_en, cluster.id)`. LLM rewords titles between runs, so recomputing the slug would orphan the previous HTML file at the old URL. Never call `_slugify()` for an article that already has a row in the DB.
+- **Detached SQLAlchemy objects across sessions don't persist**: `publish_top_n` loads `existing` in one `async with async_session_factory() as session:` block, then mutates it in a different session block. Use an explicit `update(Article).where(...).values(...)` statement, NOT `setattr(existing, k, v)` — setattr on a detached object is a silent no-op.
+- **Inverted surfaces (2x2 lead, article header, active archive window) must use literal hex colors**, not `var(--paper)` / `var(--ink-2)`. The `--paper` token flips to a dark value under `prefers-color-scheme: dark`, which makes the inverted tile dark-on-dark. Use `#0E0B09` background + `#F4F0E8` text + `#1A1614` hover.
+- **Mosaic grid breakpoints (revised from spec)**: `<=480px → 2 cols`, `481-719px → 4 cols`, `>=720px → 6 cols`. All breakpoints use `minmax(<base>, auto)` rows so tiles grow if title needs the room. Design.md's "phone default 4 cols" produced unreadably-cramped tiles on real phones.
+- **`SITE_BASE_URL` (NOT `SITE_HOST`) is what the sitemap uses.** Two different env vars, easy to confuse. Sitemap URLs default to `http://localhost` if `SITE_BASE_URL` is unset.
 - **Langid** (not spaCy) for language detection — pure Python, ~5 MB RAM, loaded once at module import.
 - **Trafilatura** primary extraction; OpenClaw browser is fallback only for `js_heavy=true` sources with `OPENCLAW_BROWSER_FALLBACK_ENABLED=true`.
 - **Reddit adapter**: 403/429 back-off aggressively; anonymous JSON access is restricted post-2023.

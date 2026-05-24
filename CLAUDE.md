@@ -47,8 +47,10 @@ Concretely, you can develop and test all of Phases 0–7 with placeholder values
 
 ## Conventions
 
-- **Working directory**: `/opt/buzz-news/` once provisioned. Initial scaffolding happens wherever the developer clones.
-- **App user**: `buzz`. Run pipeline commands as `sudo -u buzz ...` not root.
+- **Working directory**: `/home/ubuntu/buzznews/` (actual deploy, decided in 2026-05-25 session). The original spec called for `/opt/buzz-news/` but the developer chose to defer that migration; systemd units and Caddyfile already target the home-dir path. If a future session needs to migrate, see `PROGRESS.md` for the rewrite checklist.
+- **App user**: `ubuntu` (not `buzz` per original spec). Run pipeline commands as `sudo -u ubuntu /home/ubuntu/buzznews/.venv/bin/python -m buzz_news <cmd>` or simply `.venv/bin/python -m buzz_news <cmd>` from the repo root.
+- **OpenClaw port**: actually `127.0.0.1:19262` (not 18789 per the original spec). Set in `OPENCLAW_GATEWAY_URL`. The basePath is `/oi8dhw`.
+- **`.env` ownership**: must be `ubuntu:ubuntu 600`. After any `sed -i` edit run as root, re-`sudo chown ubuntu:ubuntu .env` or both services will crash with PermissionError on next restart.
 - **Timestamps**: UTC in the DB. Convert to `Asia/Kolkata` only in templates and rollup boundaries.
 - **Logs**: `/var/log/buzz-news/<service>.log`, RotatingFileHandler (10 MB × 5).
 - **Secrets**: `.env` is `chmod 600` owned by `buzz`. Never commit it. Never echo its contents in tool output.
@@ -76,4 +78,11 @@ Concretely, you can develop and test all of Phases 0–7 with placeholder values
 
 ## Memory
 
-Persistent memory for this project lives at `/root/.claude/projects/-home-ubuntu/memory/`. Read `MEMORY.md` there for the index. It contains the OpenClaw skill inventory, the developer's collab style, and ongoing project state. Update memory when you learn something durable and non-obvious.
+Persistent memory for this project lives at `/root/.claude/projects/-home-ubuntu-buzznews/memory/`. Read `MEMORY.md` there for the index. It contains the OpenClaw skill inventory, the developer's collab style, and ongoing project state. Update memory when you learn something durable and non-obvious.
+
+## Live deployment (as of 2026-05-25)
+
+- **Public URL**: https://slow.myvnc.com/ (no-ip Type A record → VPS public IP 129.226.83.187)
+- **TLS**: Let's Encrypt via Caddy HTTP-01 challenge (auto-managed). Caddy is `caddy` user, Caddyfile at `/etc/caddy/Caddyfile`, `SITE_HOST` injected via systemd drop-in `/etc/systemd/system/caddy.service.d/site-host.conf`.
+- **Cloud firewall**: Tencent Lighthouse console controls inbound ports separately from host `ufw`. Ports 22/80/443 currently open. To open more, the developer must use the Lighthouse console — you cannot do this from inside the VPS.
+- **Services**: `buzz-news-web` and `buzz-news-worker` both active under systemd. uvicorn on `127.0.0.1:8000`, worker runs APScheduler.
