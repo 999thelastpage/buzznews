@@ -10,7 +10,27 @@ category: Category
 region: Region
 published_at: Published
 source: Source
+sources: Sources
 back_to_home: Back to Home
 no_articles: No articles available
 loading: Loading...
 article_not_available: This article is not available in Hindi. English version below.
+timeline: How this story developed
+related: Related
+cat_intl: International
+cat_politics: Politics
+cat_business: Business
+cat_tech: Technology
+cat_sports: Sports
+cat_film: Film
+cat_science: Science
+cat_general: General
+time_min: m
+time_hour: h
+time_day: d
+time_week: w
+archive: Archive
+today: Today
+this_week: This week
+this_month: This month
+this_year: This year

@@ -1,0 +1,1 @@
+buzz ALL=(root) NOPASSWD: /bin/systemctl restart buzz-news-worker

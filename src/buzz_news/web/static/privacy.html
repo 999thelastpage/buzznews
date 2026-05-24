@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — BuzzNews</title>
+    <style>
+        :root {
+            --paper: #F4F0E8; --paper-2: #EDE7DC; --paper-3: #E4DDD0;
+            --ink: #1A1614; --ink-soft: #3D3530; --ink-2: #0E0B09;
+            --muted: #807771; --muted-2: #A39A92;
+            --accent: #A8421E; --buzz: #C44830;
+            --serif: "Iowan Old Style", "Apple Garamond", Constantia, Georgia, serif;
+            --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            --rail: 14px;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --paper: #14110E; --paper-2: #1B1714; --paper-3: #221D19;
+                --ink: #E8E2D6; --ink-soft: #C9C0B0; --ink-2: #050403;
+                --muted: #8A837A; --muted-2: #6D665E;
+                --accent: #E07A5F; --buzz: #E55339;
+            }
+        }
+        @media (min-width: 720px) { :root { --rail: 24px; } }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { font-size: 16px; }
+        body { font-family: var(--serif); font-size: 16px; line-height: 1.6; color: var(--ink); background: var(--paper); -webkit-font-smoothing: antialiased; }
+        a { color: var(--accent); }
+        .mast { display: flex; align-items: baseline; justify-content: space-between; padding: 14px var(--rail) 12px; border-bottom: 1px solid var(--ink); }
+        .mast__brand { font-family: var(--serif); font-size: 22px; font-weight: 400; font-style: italic; letter-spacing: -0.012em; color: var(--ink); }
+        .mast__brand .dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--buzz); margin: 0 1px 0 3px; vertical-align: 3px; }
+        .mast__lang { font-family: var(--sans); font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.11em; margin-left: 8px; }
+        .mast__lang a { color: var(--muted); }
+        .page { max-width: 680px; margin: 0 auto; padding: 40px var(--rail) 80px; }
+        .page__h1 { font-family: var(--serif); font-size: 28px; font-weight: 400; letter-spacing: -0.01em; margin-bottom: 8px; color: var(--ink); }
+        .page__date { font-family: var(--sans); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 32px; }
+        .page h2 { font-family: var(--sans); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink); margin: 28px 0 10px; }
+        .page p { margin-bottom: 14px; color: var(--ink-soft); }
+        .page ul { margin: 0 0 14px 20px; }
+        .page li { margin-bottom: 6px; color: var(--ink-soft); }
+        .foot { display: flex; gap: 16px; padding: 16px var(--rail); border-top: 1px solid var(--hairline, rgba(26,22,20,0.10)); font-family: var(--sans); font-size: 12px; color: var(--muted); }
+        .foot a { color: var(--muted); }
+        .foot a:hover { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <header class="mast">
+        <a href="/en/" class="mast__brand">Buzz<em>news</em><span class="dot"></span></a>
+        <span class="mast__lang">
+            <a href="/en/privacy">EN</a> · <a href="/hi/privacy">HI</a>
+        </span>
+    </header>
+
+    <main class="page">
+        <h1 class="page__h1">Privacy Policy</h1>
+        <p class="page__date">Last updated: May 2026</p>
+
+        <p>BuzzNews is a news aggregation service. We collect minimal data required to deliver our service.</p>
+
+        <h2>What We Collect</h2>
+        <p>We do not require account creation or collect personal information. We may collect:</p>
+        <ul>
+            <li>Anonymous usage metrics (pages viewed, time of visit) to improve our service.</li>
+            <li>Your language preference (English or Hindi) stored in a browser cookie.</li>
+        </ul>
+
+        <h2>Third-Party Services</h2>
+        <p>Content on BuzzNews is aggregated from publicly available RSS feeds and APIs including Hacker News, Reddit, GDELT, and Tavily Search. We do not control the data practices of these third parties.</p>
+
+        <h2>Cookies</h2>
+        <p>We use a single functional cookie to remember your language preference. No advertising or tracking cookies are used.</p>
+
+        <h2>Data Retention</h2>
+        <p>Aggregated articles are retained for up to one year. Raw source data is retained for up to 30 days.</p>
+
+        <h2>Contact</h2>
+        <p>For privacy concerns, contact us at privacy@buzznews.in</p>
+    </main>
+
+    <footer class="foot">
+        <a href="/en/">← Back to Home</a>
+    </footer>
+</body>
+</html>

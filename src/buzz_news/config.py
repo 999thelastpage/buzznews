@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     TAVILY_API_KEY: str = "TODO_BEFORE_PHASE_1"
 
-    OPENCLAW_GATEWAY_URL: str = "http://127.0.0.1:18789"
+    OPENCLAW_GATEWAY_URL: str = "http://127.0.0.1:19262"
     OPENCLAW_BROWSER_FALLBACK_ENABLED: bool = False
 
     BUZZ_WEBHOOK_URL: str = ""

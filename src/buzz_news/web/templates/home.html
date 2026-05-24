@@ -1,19 +1,27 @@
 {% extends "base.html" %}
+{% from "_macros.html" import mast, tile with context %}
 
-{% block title %}{{ labels.site_name }} - {{ labels.home_title }}{% endblock %}
+{% block body %}
+{{ mast(lang, 'home', labels, date_str) }}
 
-{% block content %}
-<h1>{{ labels.trending_now }}</h1>
-<div class="articles">
-    {% for article in articles %}
-    <article>
-        <h2><a href="/{{ lang }}/article/{{ article.slug }}">{{ article.title }}</a></h2>
-        {% if article.hero_image_url %}
-        <img src="{{ article.hero_image_url }}" alt="{{ article.title }}">
-        {% endif %}
-        <p>{{ article.summary_en[:200] }}...</p>
-        <span class="meta">{{ labels.category }}: {{ article.category }} | {{ article.region }}</span>
-    </article>
-    {% endfor %}
-</div>
+<section class="mos">
+  {% for art in articles %}
+  {{ tile(art, art.tile_size or '1x1', lang, art.is_hot, labels) }}
+  {% endfor %}
+  {# Archive link tile #}
+  <a href="/{{ lang }}/archive/day/{{ today_str }}" class="tile tile--2x1 s-gen">
+    <div class="tile__cat">
+      <span class="k-gen">{{ labels.archive }}</span>
+      <span class="tile__cat-time">→</span>
+    </div>
+    <h2 class="tile__title">{{ labels.archive }} · {{ labels.this_week }} / {{ labels.this_month }} / {{ labels.this_year }}</h2>
+    <div class="tile__src">{{ cluster_count }} clusters tracked · {{ published_count }} published</div>
+  </a>
+</section>
+
+<footer class="foot">
+  <a href="/{{ lang }}/archive/day/{{ today_str }}">{{ labels.archive }}</a>
+  <a href="/{{ lang }}/privacy">Privacy</a>
+  <span style="margin-left:auto">Made in Hyderabad</span>
+</footer>
 {% endblock %}

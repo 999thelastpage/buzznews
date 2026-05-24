@@ -10,7 +10,27 @@ category: श्रेणी
 region: क्षेत्र
 published_at: प्रकाशित
 source: स्रोत
+sources: स्रोत
 back_to_home: होम पर वापस जाएं
 no_articles: कोई लेख उपलब्ध नहीं
 loading: लोड हो रहा है...
 article_not_available: यह लेख हिन्दी में उपलब्ध नहीं है। अंग्रेज़ी संस्करण नीचे।
+timeline: यह कहानी कैसे विकसित हुई
+related: संबंधित
+cat_intl: अंतरराष्ट्रीय
+cat_politics: राजनीति
+cat_business: कारोबार
+cat_tech: तकनीक
+cat_sports: खेल
+cat_film: सिनेमा
+cat_science: विज्ञान
+cat_general: सामान्य
+time_min: मि
+time_hour: घं
+time_day: दि
+time_week: सप
+archive: संग्रह
+today: आज
+this_week: इस सप्ताह
+this_month: इस महीने
+this_year: इस साल

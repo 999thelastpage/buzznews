@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ period_label }}{% endblock %}
+{% block head %}
+<meta property="og:title" content="{{ period_label }}">
+<meta property="og:description" content="{{ og_description }}">
+<meta property="og:type" content="article">
+<meta property="og:locale" content="{{ lang == 'hi' and 'hi_IN' or 'en_US' }}">
+<link rel="canonical" href="{{ canonical_url }}">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  "name": "{{ period_label }}",
+  "itemListElement": [
+    {% for article in articles %}
+    {
+      "@type": "ListItem",
+      "position": {{ loop.index }},
+      "url": "{{ canonical_url }}/../article/{{ article.slug }}"
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ]
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<section class="rollup-header">
+    <h1>{{ period_label }}</h1>
+    {% if category or region %}
+    <p class="filters">Category: {{ category or 'All' }} | Region: {{ region or 'All' }}</p>
+    {% endif %}
+</section>
+{% if articles %}
+<div class="articles">
+    {% for article in articles %}
+    <article>
+        <h2><a href="/{{ lang }}/article/{{ article.slug }}">{{ article.title_en }}</a></h2>
+        {% if article.title_hi %}<p class="hi-title"><a href="/{{ lang }}/article/{{ article.slug }}">{{ article.title_hi }}</a></p>{% endif %}
+        {% if article.hero_image_url %}
+        <img src="{{ article.hero_image_url }}" alt="{{ article.title_en }}">
+        {% if article.hero_image_credit %}<small>{{ article.hero_image_credit }}</small>{% endif %}
+        {% endif %}
+        <p>{{ article.summary_en[:200] }}...</p>
+        <span class="meta">Category: {{ article.category }} | Region: {{ article.region }}</span>
+    </article>
+    {% endfor %}
+</div>
+{% else %}
+<p>No articles available.</p>
+{% endif %}
+{% endblock %}

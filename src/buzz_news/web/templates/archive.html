@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import mast, render_windows, rank_tile with context %}
+
+{% block body %}
+{{ mast(lang, 'archive', labels, date_str) }}
+
+<section class="archive">
+  <div class="archive__head">
+    <h1 class="archive__title">{{ period_label }}</h1>
+    <p class="archive__sub">{{ total_count }} articles</p>
+  </div>
+
+  {{ render_windows(windows, period, lang, labels) }}
+
+  <div class="rank-mos">
+    {% for art in articles %}
+    {{ rank_tile(art, loop.index, lang, labels) }}
+    {% endfor %}
+  </div>
+</section>
+
+<footer class="foot">
+  <a href="/{{ lang }}/">← {{ labels.back_to_home }}</a>
+  <span style="margin-left:auto">Rankings refresh hourly</span>
+</footer>
+{% endblock %}

@@ -1,0 +1,173 @@
+{# ===== MASTHEAD ===== #}
+{% macro mast(lang, page, labels, date_str) -%}
+<header class="mast">
+  {% if page == 'home' %}
+  <h1 class="mast__brand">Buzz<em>news</em><span class="dot" aria-hidden="true"></span></h1>
+  {% else %}
+  <a href="/{{ lang }}/" class="mast__brand">Buzz<em>news</em></a>
+  {% endif %}
+  <div class="mast__meta">
+    <span>{{ date_str }}</span>
+    <span class="mast__lang">
+      <a href="/en{% if page != 'home' %}/{{ page }}{% endif %}" {% if lang=='en' %}class="is-active"{% endif %}>EN</a>·
+      <a href="/hi{% if page != 'home' %}/{{ page }}{% endif %}" {% if lang=='hi' %}class="is-active"{% endif %}>HI</a>
+    </span>
+  </div>
+</header>
+{%- endmacro %}
+
+{# ===== RELATIVE TIME ===== #}
+{% macro reltime(dt, lang) -%}
+{% if lang == 'hi' %}
+  {% set s = (( (utc_now() - dt).total_seconds() / 60 ))|int %}
+  {% if s < 60 %}{{ s }}{{ labels.time_min }}{% elif s < 1440 %}{{ (s / 60)|int }}{{ labels.time_hour }}{% elif s < 10080 %}{{ (s / 1440)|int }}{{ labels.time_day }}{% else %}{{ (s / 10080)|int }}{{ labels.time_week }}{% endif %}
+{% else %}
+  {% set s = (( (utc_now() - dt).total_seconds() / 60 ))|int %}
+  {% if s < 60 %}{{ s }}{{ labels.time_min }}{% elif s < 1440 %}{{ (s / 60)|int }}{{ labels.time_hour }}{% elif s < 10080 %}{{ (s / 1440)|int }}{{ labels.time_day }}{% else %}{{ (s / 10080)|int }}{{ labels.time_week }}{% endif %}
+{% endif %}
+{%- endmacro %}
+
+{# ===== CAT CLASS ===== #}
+{% macro cat_c(cat) -%}
+{% if cat == 'international' %}s-intl{% elif cat == 'politics' %}s-pol{% elif cat == 'business' %}s-biz{% elif cat == 'technology' %}s-tech{% elif cat == 'sports' %}s-sport{% elif cat == 'film' %}s-film{% elif cat == 'science' %}s-sci{% else %}s-gen{% endif %}
+{%- endmacro %}
+
+{% macro cat_k(cat) -%}
+{% if cat == 'international' %}k-intl{% elif cat == 'politics' %}k-pol{% elif cat == 'business' %}k-biz{% elif cat == 'technology' %}k-tech{% elif cat == 'sports' %}k-sport{% elif cat == 'film' %}k-film{% elif cat == 'science' %}k-sci{% else %}k-gen{% endif %}
+{%- endmacro %}
+
+{% macro cat_name(cat, labels) -%}
+{% if cat == 'international' %}{{ labels.cat_intl }}{% elif cat == 'politics' %}{{ labels.cat_politics }}{% elif cat == 'business' %}{{ labels.cat_business }}{% elif cat == 'technology' %}{{ labels.cat_tech }}{% elif cat == 'sports' %}{{ labels.cat_sports }}{% elif cat == 'film' %}{{ labels.cat_film }}{% elif cat == 'science' %}{{ labels.cat_science }}{% else %}{{ labels.cat_general }}{% endif %}
+{%- endmacro %}
+
+{# ===== MOSAIC TILE ===== #}
+{% macro tile(art, size, lang, is_hot, labels) -%}
+{% set c = art.category or 'general' %}
+{% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+{% set srcs = art.source_names[:3] if art.source_names else [] %}
+{% set n = art.source_count or srcs|length or 1 %}
+<a href="/{{ lang }}/article/{{ art.slug }}" class="tile tile--{{ size }} {{ cat_c(c) }}">
+  <div class="tile__cat">
+    <span>
+      {% if is_hot %}<span class="hot" aria-hidden="true"></span>{% endif %}
+      <span class="{{ cat_k(c) }}">{{ cat_name(c, labels) }}</span>
+    </span>
+    <span class="tile__cat-time">{{ reltime(art.published_at, lang) }}</span>
+  </div>
+  <h2 class="tile__title">{{ title }}</h2>
+  <div class="tile__src">
+    {% if size == '2x2' %}
+      {% for s in srcs %}<strong>{{ s }}</strong{% if not loop.last %} · {% endif %}{% endfor %}
+      {% if n > 3 %} · +{{ n - 3 }} sources{% endif %}
+    {% elif size == '2x1' %}
+      {% for s in srcs[:2] %}<strong>{{ s }}</strong{% if not loop.last %} · {% endif %}{% endfor %}
+      {% if n > 2 %} · +{{ n - 2 }}{% endif %}
+    {% else %}
+      {{ n }} {% if lang == 'hi' %}स्रोत{% else %}src{% endif %}
+    {% endif %}
+  </div>
+</a>
+{%- endmacro %}
+
+{# ===== ARTICLE HEADER ===== #}
+{% macro article_head(art, is_hot, lang, labels) -%}
+{% set c = art.category or 'general' %}
+{% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+{% set n = art.source_count or art.source_names|length or 1 %}
+<header class="article__head" style="--c-intl: var(--c-{% if c == 'international' %}intl{% elif c == 'politics' %}pol{% elif c == 'business' %}biz{% elif c == 'technology' %}tech{% elif c == 'sports' %}sport{% elif c == 'film' %}film{% elif c == 'science' %}sci{% else %}gen{% endif %});">
+  <div class="article__kicker">
+    {% if is_hot %}<span class="hot" aria-hidden="true"></span>{% endif %}
+    {{ cat_name(c, labels) }}{% if is_hot %} · Buzz{% endif %}
+  </div>
+  <h1 class="article__title">{{ title }}</h1>
+  <p class="article__byline">
+    {% if lang == 'hi' %}से संश्लेषित{% else %}Synthesized from{% endif %}
+    <strong>{{ n }} {% if lang == 'hi' %}स्रोत{% else %}sources{% endif %}</strong>
+  </p>
+</header>
+{%- endmacro %}
+
+{# ===== HERO IMAGE ===== #}
+{% macro hero(img_url, img_credit) -%}
+{% if img_url %}
+<figure class="article__hero">
+  <img src="{{ img_url }}" alt="" width="1200" height="675" loading="lazy" decoding="async">
+  {% if img_credit %}<figcaption class="article__hero-credit">{{ img_credit }}</figcaption>{% endif %}
+</figure>
+{% endif %}
+{%- endmacro %}
+
+{# ===== SOURCES BLOCK ===== #}
+{% macro sources(srcs, lang, labels) -%}
+<section class="src-mos" aria-label="{{ labels.sources }}">
+  <h2 class="src-mos__h">{{ labels.sources or 'Read at sources' }}</h2>
+  <div class="src-grid">
+    {% for s in srcs[:6] %}
+    <a href="{{ s.url }}" class="src-tile" target="_blank" rel="noopener">
+      <div class="src-tile__head">
+        <span class="src-tile__name">{{ s.name }}</span>
+        <span class="src-tile__time">{{ reltime(s.published_at or art.published_at, lang) }}</span>
+      </div>
+      <div class="src-tile__title">{{ s.title }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{%- endmacro %}
+
+{# ===== TIMELINE ===== #}
+{% macro timeline(events, lang, labels) -%}
+{% if events %}
+<section class="tl" aria-label="{{ labels.timeline }}">
+  <h2 class="tl__h">{{ labels.timeline or 'How this story developed' }}</h2>
+  {% for ev in events[:6] %}
+  <div class="tl-ev">
+    <span class="tl-ev__t">{{ reltime(ev.at, lang) }}</span>
+    <span class="tl-ev__x">{{ ev.text }}</span>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+{%- endmacro %}
+
+{# ===== RELATED ===== #}
+{% macro related(arts, lang, labels) -%}
+{% if arts %}
+<section class="related" aria-label="{{ labels.related }}">
+  <h2 class="related__h">{{ labels.related or 'Related' }}</h2>
+  <div class="related__grid">
+    {% for a in arts[:3] %}
+    {{ tile(a, '1x1', lang, false, labels) }}
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{%- endmacro %}
+
+{# ===== ARCHIVE WINDOWS ===== #}
+{% macro render_windows(wins, cur, lang, labels) -%}
+<div class="windows">
+  {% for w in wins %}
+  <a href="{{ w.url }}" class="win{% if w.period == cur %} is-active{% endif %}">
+    <span class="win__label">{{ w.label }}</span>
+    {% if w.headline %}<span class="win__head">{{ w.headline }}</span>{% endif %}
+    <span class="win__foot">{{ w.meta }}</span>
+  </a>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{# ===== RANK TILE ===== #}
+{% macro rank_tile(art, n, lang, labels) -%}
+{% set c = art.category or 'general' %}
+{% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+{% set src_n = art.source_count or 1 %}
+<a href="/{{ lang }}/article/{{ art.slug }}" class="rank-tile {{ cat_c(c) }}">
+  <span class="rank-tile__n">{{ "%02d"|format(n) }}</span>
+  <div class="rank-tile__body">
+    <div class="rank-tile__cat {{ cat_k(c) }}">{{ cat_name(c, labels) }}</div>
+    <div class="rank-tile__title">{{ title }}</div>
+    <div class="rank-tile__src">{{ src_n }} {% if lang == 'hi' %}स्रोत{% else %}src{% endif %} · {{ reltime(art.published_at, lang) }}</div>
+  </div>
+</a>
+{%- endmacro %}

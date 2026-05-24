@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#F4F0E8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14110E" media="(prefers-color-scheme: dark)">
+<title>BuzzNews</title>
+<style>
+/* ============================================================
+   DESIGN TOKENS — copy to static/tokens.css for production
+   ============================================================ */
+:root {
+  --paper:      #F4F0E8;
+  --paper-2:    #EDE7DC;
+  --paper-3:    #E4DDD0;
+  --ink:        #1A1614;
+  --ink-soft:   #3D3530;
+  --ink-2:      #0E0B09;          /* darker inversion */
+  --muted:      #807771;
+  --muted-2:    #A39A92;
+  --hairline:   rgba(26, 22, 20, 0.10);
+  --hairline-2: rgba(26, 22, 20, 0.05);
+  --accent:     #A8421E;
+  --buzz:       #C44830;
+
+  /* Category accents — earthy, distinct, not crayon */
+  --c-intl:   #2E5C8A;
+  --c-pol:    #6B3A8C;
+  --c-biz:    #2D6B4F;
+  --c-tech:   #B8651F;
+  --c-sport:  #A8421E;
+  --c-film:   #8C3A5C;
+  --c-sci:    #4A6B8C;
+  --c-gen:    #5C5048;
+
+  --serif: "Iowan Old Style", "Apple Garamond", Constantia, Georgia, serif;
+  --sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --rail: 14px;
+  --gap: 6px;
+  --measure: 760px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:      #14110E;
+    --paper-2:    #1B1714;
+    --paper-3:    #221D19;
+    --ink:        #E8E2D6;
+    --ink-soft:   #C9C0B0;
+    --ink-2:      #050403;
+    --muted:      #8A837A;
+    --muted-2:    #6D665E;
+    --hairline:   rgba(232, 226, 214, 0.14);
+    --hairline-2: rgba(232, 226, 214, 0.06);
+    --accent:     #E07A5F;
+    --buzz:       #E55339;
+    --c-intl: #6D9CD0; --c-pol: #B084D0; --c-biz: #7BC09A;
+    --c-tech: #E0A26B; --c-sport: #E07A5F; --c-film: #D08AA8;
+    --c-sci: #8FB0D0; --c-gen: #A89C90;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "kern", "liga";
+}
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--accent); }
+img { max-width: 100%; height: auto; display: block; }
+
+/* ============================================================
+   PREVIEW SWITCHER (mockup-only — remove in production)
+   ============================================================ */
+.switcher {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--paper);
+  border-bottom: 1px solid var(--ink);
+  font-family: var(--sans);
+}
+.switcher__inner {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 8px var(--rail);
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+}
+.switcher__label {
+  font-size: 9.5px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.12em;
+  margin-right: 4px;
+}
+.switcher a {
+  font-size: 11.5px;
+  padding: 5px 9px;
+  border: 1px solid var(--hairline);
+  color: var(--ink-soft);
+}
+.switcher a:hover { border-color: var(--ink); color: var(--ink); }
+.switcher a.is-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.app { max-width: var(--measure); margin: 0 auto; }
+
+.view { display: none; }
+.view:target { display: block; }
+.view#home { display: block; }
+.view:target ~ .view#home { display: none; }
+
+/* ============================================================
+   MASTHEAD — tight, one line
+   ============================================================ */
+.mast {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 14px var(--rail) 12px;
+  border-bottom: 1px solid var(--ink);
+}
+.mast__brand {
+  font-family: var(--serif);
+  font-size: 22px; font-weight: 400;
+  font-style: italic;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+}
+.mast__brand .dot {
+  display: inline-block; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--buzz);
+  margin: 0 1px 0 3px; vertical-align: 3px;
+  animation: pulse 3s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.mast__meta {
+  font-family: var(--sans);
+  font-size: 10.5px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.11em;
+}
+.mast__meta a { color: var(--muted); }
+.mast__lang { margin-left: 8px; }
+.mast__lang a { padding: 0 2px; }
+.mast__lang a.is-active { color: var(--ink); font-weight: 600; }
+.mast__back { color: var(--muted); }
+
+/* ============================================================
+   CATEGORY STRIPE PRIMITIVE — 3px left edge
+   ============================================================ */
+.s-intl  { box-shadow: inset 3px 0 0 0 var(--c-intl); }
+.s-pol   { box-shadow: inset 3px 0 0 0 var(--c-pol); }
+.s-biz   { box-shadow: inset 3px 0 0 0 var(--c-biz); }
+.s-tech  { box-shadow: inset 3px 0 0 0 var(--c-tech); }
+.s-sport { box-shadow: inset 3px 0 0 0 var(--c-sport); }
+.s-film  { box-shadow: inset 3px 0 0 0 var(--c-film); }
+.s-sci   { box-shadow: inset 3px 0 0 0 var(--c-sci); }
+.s-gen   { box-shadow: inset 3px 0 0 0 var(--c-gen); }
+
+/* Category color tokens for label text */
+.k-intl  { color: var(--c-intl); }
+.k-pol   { color: var(--c-pol); }
+.k-biz   { color: var(--c-biz); }
+.k-tech  { color: var(--c-tech); }
+.k-sport { color: var(--c-sport); }
+.k-film  { color: var(--c-film); }
+.k-sci   { color: var(--c-sci); }
+.k-gen   { color: var(--c-gen); }
+
+/* Buzz dot — inline on hot stories */
+.hot {
+  display: inline-block; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--buzz);
+  animation: pulse 3s ease-in-out infinite;
+  margin-right: 5px; vertical-align: 2px;
+}
+
+/* ============================================================
+   MOSAIC — the workhorse layout
+   ============================================================ */
+.mos {
+  padding: 12px var(--rail);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--gap);
+  grid-auto-flow: dense;
+  grid-auto-rows: 92px;          /* generous; headlines breathe */
+}
+.tile {
+  background: var(--paper-2);
+  padding: 10px 10px 9px 13px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transition: background 0.15s ease;
+}
+.tile:hover { background: var(--paper-3); }
+.tile:active { background: var(--paper-3); }
+
+.tile__cat {
+  font-family: var(--sans);
+  font-size: 9px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.11em;
+  margin-bottom: 5px;
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.tile__cat-time {
+  color: var(--muted); font-weight: 500; letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+.tile__title {
+  font-family: var(--serif);
+  font-weight: 400;
+  line-height: 1.22;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  display: -webkit-box; -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.tile__src {
+  font-family: var(--sans);
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile__src strong { color: var(--ink-soft); font-weight: 500; }
+
+/* ---- Tile sizes (driven by composite score) ---- */
+.tile--2x2 {
+  grid-column: span 2; grid-row: span 2;
+  background: var(--ink-2); color: var(--paper);
+  padding: 14px 14px 12px 17px;
+}
+.tile--2x2:hover { background: var(--ink); }
+.tile--2x2 .tile__cat { font-size: 9.5px; }
+.tile--2x2 .tile__cat-time { color: var(--muted-2); }
+.tile--2x2 .tile__title {
+  color: var(--paper);
+  font-size: 19px; line-height: 1.18;
+  letter-spacing: -0.012em;
+  -webkit-line-clamp: 5;
+  margin-bottom: 8px;
+}
+.tile--2x2 .tile__src { color: rgba(244,240,232,0.65); font-size: 11px; }
+.tile--2x2 .tile__src strong { color: rgba(244,240,232,0.9); }
+
+.tile--2x1 { grid-column: span 2; }
+.tile--2x1 .tile__title { font-size: 14px; -webkit-line-clamp: 3; }
+.tile--2x1 .tile__src { font-size: 10.5px; }
+
+.tile--1x1 { grid-column: span 1; }
+.tile--1x1 .tile__title { font-size: 12.5px; line-height: 1.2; -webkit-line-clamp: 3; }
+.tile--1x1 .tile__src { font-size: 9.5px; }
+
+/* Mobile: relax to 3 cols below 380px so tiles don't get cramped */
+@media (max-width: 380px) {
+  .mos { grid-template-columns: repeat(3, 1fr); grid-auto-rows: 86px; }
+  .tile--2x2 { grid-column: span 3; }
+}
+
+/* Wider screens (tablet+): give it 6 cols and let tiles spread */
+@media (min-width: 720px) {
+  :root { --rail: 24px; }
+  .mos { grid-template-columns: repeat(6, 1fr); grid-auto-rows: 100px; gap: 8px; }
+  .tile--2x2 { grid-column: span 3; grid-row: span 2; }
+  .tile--2x1 { grid-column: span 3; }
+  .tile--1x1 { grid-column: span 2; }
+  .tile--2x2 .tile__title { font-size: 23px; }
+  .tile--2x1 .tile__title { font-size: 15.5px; }
+  .tile--1x1 .tile__title { font-size: 13.5px; }
+}
+
+/* ============================================================
+   ARTICLE DETAIL — mosaic spirit, reading-friendly center
+   ============================================================ */
+.article {
+  padding: 0 var(--rail);
+}
+.article__head {
+  background: var(--ink-2);
+  color: var(--paper);
+  margin: 12px 0 0;
+  padding: 22px 18px 24px;
+  position: relative;
+}
+.article__head::before {
+  /* category stripe across the top */
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--c-intl);   /* swap per article in production */
+}
+.article__kicker {
+  font-family: var(--sans);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: rgba(244,240,232,0.85);
+  margin-bottom: 14px;
+  display: flex; gap: 10px; align-items: center;
+}
+.article__kicker .hot { background: var(--buzz); }
+.article__title {
+  font-family: var(--serif);
+  font-size: 28px; font-weight: 400;
+  line-height: 1.13;
+  letter-spacing: -0.014em;
+  color: var(--paper);
+  margin-bottom: 14px;
+}
+.article__byline {
+  font-family: var(--sans);
+  font-size: 11.5px; color: var(--muted-2);
+  letter-spacing: 0.02em;
+}
+.article__byline strong { color: var(--paper); font-weight: 500; }
+
+/* Optional hero — only rendered when image is good */
+.article__hero {
+  margin: 0;
+}
+.article__hero img {
+  width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block;
+}
+.article__hero-credit {
+  font-family: var(--sans);
+  font-size: 10px; color: var(--muted);
+  padding: 5px 2px 0;
+  text-align: right;
+}
+
+.article__body {
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--ink);
+  padding: 22px 4px 8px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.article__body p { margin-bottom: 1.1em; }
+.article__body p:first-of-type::first-line {
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+.article__body em { color: var(--ink); font-style: italic; }
+
+/* "What's next" callout */
+.next {
+  max-width: 640px; margin: 14px auto 0;
+  background: var(--paper-2);
+  border-left: 2px solid var(--accent);
+  padding: 14px 16px;
+  font-size: 15px; line-height: 1.55;
+  color: var(--ink-soft);
+}
+.next__label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 9.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--accent);
+  margin-bottom: 5px;
+}
+
+/* Source mosaic */
+.src-mos {
+  max-width: 640px; margin: 28px auto 0;
+}
+.src-mos__h {
+  font-family: var(--sans);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink);
+}
+.src-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--gap);
+}
+.src-tile {
+  background: var(--paper-2);
+  padding: 9px 11px;
+  display: flex; flex-direction: column; gap: 4px;
+  font-family: var(--sans);
+  min-height: 64px;
+}
+.src-tile:hover { background: var(--paper-3); }
+.src-tile__head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 10.5px;
+}
+.src-tile__name { color: var(--ink); font-weight: 600; letter-spacing: 0.01em; }
+.src-tile__time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.src-tile__title {
+  font-family: var(--serif);
+  font-size: 12.5px; line-height: 1.25;
+  color: var(--ink-soft);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Timeline */
+.tl {
+  max-width: 640px; margin: 28px auto 0;
+}
+.tl__h {
+  font-family: var(--sans);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink);
+}
+.tl-ev {
+  display: grid; grid-template-columns: 44px 1fr; gap: 12px;
+  padding: 8px 0;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  align-items: baseline;
+}
+.tl-ev__t {
+  color: var(--muted);
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+.tl-ev__x { color: var(--ink-soft); line-height: 1.45; }
+.tl-ev__x strong { color: var(--ink); font-weight: 600; }
+
+/* Related stories — mini mosaic */
+.related {
+  max-width: 760px; margin: 28px auto 0;
+}
+.related__h {
+  font-family: var(--sans);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink);
+}
+.related__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap);
+}
+@media (max-width: 480px) {
+  .related__grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ============================================================
+   ARCHIVE — top 4 windows + ranked mini-mosaic
+   ============================================================ */
+.archive { padding: 0 var(--rail); }
+.archive__head {
+  padding: 18px 4px 14px;
+  border-bottom: 1px solid var(--ink);
+  margin-bottom: 12px;
+}
+.archive__title {
+  font-family: var(--serif);
+  font-size: 26px; font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.012em;
+  margin-bottom: 4px;
+}
+.archive__sub {
+  font-family: var(--sans);
+  font-size: 11.5px; color: var(--muted);
+}
+
+.windows {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--gap);
+  margin-bottom: 18px;
+}
+.win {
+  background: var(--paper-2);
+  padding: 12px 14px 14px;
+  display: flex; flex-direction: column;
+  min-height: 120px;
+}
+.win.is-active { background: var(--ink-2); color: var(--paper); }
+.win__label {
+  font-family: var(--sans);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.win.is-active .win__label { color: var(--muted-2); }
+.win__head {
+  font-family: var(--serif);
+  font-size: 14px; line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  margin-bottom: 8px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.win.is-active .win__head { color: var(--paper); }
+.win__foot {
+  font-family: var(--sans);
+  font-size: 10px; color: var(--muted);
+  margin-top: auto;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.win.is-active .win__foot { color: var(--muted-2); }
+
+.rank-mos {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--gap);
+}
+.rank-tile {
+  background: var(--paper-2);
+  padding: 9px 11px;
+  display: grid; grid-template-columns: 22px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  min-height: 70px;
+}
+.rank-tile:hover { background: var(--paper-3); }
+.rank-tile__n {
+  font-family: var(--sans);
+  font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.rank-tile__body { min-width: 0; }
+.rank-tile__cat {
+  font-family: var(--sans);
+  font-size: 9px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 3px;
+}
+.rank-tile__title {
+  font-family: var(--serif);
+  font-size: 12.5px; line-height: 1.25;
+  color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+.rank-tile__src {
+  font-family: var(--sans);
+  font-size: 9.5px; color: var(--muted);
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.foot {
+  border-top: 1px solid var(--ink);
+  margin-top: 32px;
+  padding: 16px var(--rail) 28px;
+  font-family: var(--sans);
+  font-size: 11px; color: var(--muted);
+  display: flex; gap: 14px; flex-wrap: wrap;
+}
+.foot a:hover { color: var(--ink); }
+
+/* ============================================================
+   HINDI: same components, slightly relaxed line-height
+   ============================================================ */
+[lang="hi"] { font-feature-settings: "kern", "liga"; line-height: 1.6; }
+[lang="hi"] .tile__title,
+[lang="hi"] .article__title,
+[lang="hi"] .win__head,
+[lang="hi"] .rank-tile__title { letter-spacing: 0; line-height: 1.3; }
+[lang="hi"] .article__body { line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<nav class="switcher" aria-label="Preview switcher">
+  <div class="switcher__inner">
+    <span class="switcher__label">View:</span>
+    <a href="#home" class="is-active">Home</a>
+    <a href="#article">Article</a>
+    <a href="#archive">Archive</a>
+    <a href="#home-hi">हिन्दी</a>
+  </div>
+</nav>
+
+<main class="app">
+
+  <!-- ============================================================
+       HOME — EN
+       ============================================================ -->
+  <section class="view" id="home">
+
+    <header class="mast">
+      <h1 class="mast__brand">Buzz<em>news</em><span class="dot" aria-hidden="true"></span></h1>
+      <div class="mast__meta">
+        Sat 24 May
+        <span class="mast__lang"><a href="#home" class="is-active">EN</a>·<a href="#home-hi">HI</a></span>
+      </div>
+    </header>
+
+    <section class="mos">
+
+      <!-- Lead: 2x2 dark tile, score > 0.75 -->
+      <a href="#article" class="tile tile--2x2 s-intl">
+        <div class="tile__cat">
+          <span><span class="hot"></span>International</span>
+          <span class="tile__cat-time">14m</span>
+        </div>
+        <h2 class="tile__title">EU and India close in on long-stalled trade pact ahead of June summit</h2>
+        <div class="tile__src"><strong>Reuters</strong> · <strong>FT</strong> · <strong>The Hindu</strong> · +6 sources</div>
+      </a>
+
+      <!-- 2x1 high-importance, score 0.55–0.75 -->
+      <a href="#article" class="tile tile--2x1 s-biz">
+        <div class="tile__cat">
+          <span class="k-biz">Business</span>
+          <span class="tile__cat-time">3h</span>
+        </div>
+        <h2 class="tile__title">RBI signals possible rate cut as April inflation hits 18-month low</h2>
+        <div class="tile__src"><strong>Mint</strong> · <strong>Reuters</strong> · +9</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-tech">
+        <div class="tile__cat">
+          <span class="k-tech"><span class="hot"></span>Tech</span>
+          <span class="tile__cat-time">2h</span>
+        </div>
+        <h2 class="tile__title">Anthropic ships Claude Opus 4.7 with 500K context, lower API price</h2>
+        <div class="tile__src"><strong>TechCrunch</strong> · <strong>Verge</strong> · +6</div>
+      </a>
+
+      <!-- 1x1 row -->
+      <a href="#article" class="tile tile--1x1 s-sport">
+        <div class="tile__cat"><span class="k-sport">Sport</span><span class="tile__cat-time">3h</span></div>
+        <h2 class="tile__title">RCB lift maiden IPL title in low-scoring final</h2>
+        <div class="tile__src">11 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-pol">
+        <div class="tile__cat"><span class="k-pol">Pol</span><span class="tile__cat-time">1h</span></div>
+        <h2 class="tile__title">SC reserves verdict on electoral bonds timeline</h2>
+        <div class="tile__src">7 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-film">
+        <div class="tile__cat"><span class="k-film">Film</span><span class="tile__cat-time">6h</span></div>
+        <h2 class="tile__title">Kapadia's All We Imagine wins festival top prize</h2>
+        <div class="tile__src">7 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-sci">
+        <div class="tile__cat"><span class="k-sci">Sci</span><span class="tile__cat-time">7h</span></div>
+        <h2 class="tile__title">ISRO sets July window for next Gaganyaan test</h2>
+        <div class="tile__src">6 src</div>
+      </a>
+
+      <!-- Second wide tile breaks rhythm -->
+      <a href="#article" class="tile tile--2x1 s-intl">
+        <div class="tile__cat">
+          <span class="k-intl">International</span>
+          <span class="tile__cat-time">5h</span>
+        </div>
+        <h2 class="tile__title">Cyclone Remal weakens to deep depression after Bangladesh landfall</h2>
+        <div class="tile__src"><strong>AP</strong> · <strong>BBC</strong> · <strong>Al Jazeera</strong> · +6</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-biz">
+        <div class="tile__cat">
+          <span class="k-biz">Business</span>
+          <span class="tile__cat-time">4h</span>
+        </div>
+        <h2 class="tile__title">TCS, Infosys flag US visa uncertainty in quarterly guidance</h2>
+        <div class="tile__src"><strong>Mint</strong> · <strong>Reuters</strong> · +4</div>
+      </a>
+
+      <a href="#article" class="tile tile--1x1 s-tech">
+        <div class="tile__cat"><span class="k-tech">Tech</span><span class="tile__cat-time">10h</span></div>
+        <h2 class="tile__title">EU opens probe into AI training data licensing</h2>
+        <div class="tile__src">6 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-sport">
+        <div class="tile__cat"><span class="k-sport">Sport</span><span class="tile__cat-time">12h</span></div>
+        <h2 class="tile__title">Sinner, Swiatek breeze through French Open openers</h2>
+        <div class="tile__src">7 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-intl">
+        <div class="tile__cat"><span class="k-intl">Intl</span><span class="tile__cat-time">8h</span></div>
+        <h2 class="tile__title">G7 meets on Russian asset windfall mechanism</h2>
+        <div class="tile__src">8 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-pol">
+        <div class="tile__cat"><span class="k-pol">Pol</span><span class="tile__cat-time">18h</span></div>
+        <h2 class="tile__title">Karnataka cabinet portfolios revised after coalition talks</h2>
+        <div class="tile__src">5 src</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-sci">
+        <div class="tile__cat">
+          <span class="k-sci">Science</span>
+          <span class="tile__cat-time">22h</span>
+        </div>
+        <h2 class="tile__title">Study finds monsoon onset has shifted nearly two weeks since 1980</h2>
+        <div class="tile__src"><strong>Mongabay</strong> · <strong>The Hindu</strong> · +2</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-biz">
+        <div class="tile__cat">
+          <span class="k-biz">Business</span>
+          <span class="tile__cat-time">15h</span>
+        </div>
+        <h2 class="tile__title">Adani Group renewables arm files for $2.5B IPO</h2>
+        <div class="tile__src"><strong>Bloomberg</strong> · <strong>Mint</strong> · +3</div>
+      </a>
+
+      <a href="#article" class="tile tile--1x1 s-gen">
+        <div class="tile__cat"><span class="k-gen">Gen</span><span class="tile__cat-time">11h</span></div>
+        <h2 class="tile__title">Hyderabad records hottest May day since 2016</h2>
+        <div class="tile__src">4 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-tech">
+        <div class="tile__cat"><span class="k-tech">Tech</span><span class="tile__cat-time">20h</span></div>
+        <h2 class="tile__title">Starship completes second orbital re-entry test</h2>
+        <div class="tile__src">8 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-film">
+        <div class="tile__cat"><span class="k-film">Film</span><span class="tile__cat-time">16h</span></div>
+        <h2 class="tile__title">Kalki 2898 AD sequel begins pre-production</h2>
+        <div class="tile__src">4 src</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-biz">
+        <div class="tile__cat"><span class="k-biz">Biz</span><span class="tile__cat-time">23h</span></div>
+        <h2 class="tile__title">Zomato to spin off quick commerce arm</h2>
+        <div class="tile__src">6 src</div>
+      </a>
+
+      <a href="#archive" class="tile tile--2x1 s-gen">
+        <div class="tile__cat"><span class="k-gen">Archive</span><span class="tile__cat-time">→</span></div>
+        <h2 class="tile__title">Top stories of this week, month, and year</h2>
+        <div class="tile__src">312 clusters tracked · 67 published</div>
+      </a>
+
+    </section>
+
+    <footer class="foot">
+      <a href="#archive">Archive</a><a href="#">Sources</a><a href="#">About</a><a href="#">Privacy</a>
+      <span style="margin-left:auto">Made in Hyderabad</span>
+    </footer>
+  </section>
+
+  <!-- ============================================================
+       ARTICLE DETAIL
+       ============================================================ -->
+  <section class="view" id="article">
+
+    <header class="mast">
+      <a href="#home" class="mast__brand">Buzz<em>news</em></a>
+      <div class="mast__meta"><a href="#home" class="mast__back">← Home</a></div>
+    </header>
+
+    <article class="article">
+
+      <header class="article__head">
+        <div class="article__kicker">
+          <span class="hot" aria-hidden="true"></span>
+          <span>International · Buzz</span>
+        </div>
+        <h1 class="article__title">EU and India close in on long-stalled trade pact ahead of June summit</h1>
+        <p class="article__byline">Synthesized from <strong>9 sources</strong> · Updated 14m ago</p>
+      </header>
+
+      <!-- Conditional hero block: only renders when imager returns a high-confidence match.
+           In production: omit this <figure> when hero_image_url is NULL. -->
+      <figure class="article__hero">
+        <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23B8A88A'/><stop offset='1' stop-color='%237A6B52'/></linearGradient></defs><rect width='1200' height='675' fill='url(%23g)'/><text x='600' y='340' text-anchor='middle' font-family='Georgia' font-size='22' fill='%23FFFFFF' opacity='0.7'>Hero placeholder · only renders when imager finds a good match</text></svg>" alt="">
+        <figcaption class="article__hero-credit">Photo by Christian Lue · Unsplash</figcaption>
+      </figure>
+
+      <div class="article__body">
+        <p>Negotiators from the European Union and India described the latest round of trade talks in Brussels as the most substantive in two years, according to <em>Reuters</em>, which cited two officials briefed on the discussions. The two sides have been working toward a free trade agreement since 2007, with momentum repeatedly stalling over disputes on automotive tariffs and agricultural market access.</p>
+
+        <p>The <em>Financial Times</em> reports that schedules on automobiles and wine remain the principal sticking points, though both delegations now expect a framework announcement at the EU–India summit scheduled for late June in New Delhi. A senior Indian commerce ministry official, quoted by <em>The Hindu</em>, said the gap on automotive tariffs had narrowed but stopped short of confirming a final figure.</p>
+
+        <p>If concluded, the deal would be the largest trade agreement either side has signed in a decade, covering goods, services, and investment protections. <em>Bloomberg</em> notes that India is the EU's tenth-largest trading partner, with bilateral trade in goods reaching €124 billion in the last reported year. European negotiators have linked progress to Indian commitments on labour standards and intellectual property enforcement, which earlier rounds had described as non-negotiable.</p>
+
+        <p>Civil society groups in both jurisdictions have raised concerns about the lack of public consultation on chapters touching on data protection and pharmaceutical patents, though neither government has published a draft text.</p>
+      </div>
+
+      <aside class="next">
+        <span class="next__label">What's next</span>
+        The EU–India summit on 24–25 June in New Delhi is expected to either announce a framework agreement or signal a further extension of talks into the autumn.
+      </aside>
+
+      <section class="src-mos" aria-label="Sources">
+        <h2 class="src-mos__h">Read at sources</h2>
+        <div class="src-grid">
+          <a href="#" class="src-tile">
+            <div class="src-tile__head"><span class="src-tile__name">Reuters</span><span class="src-tile__time">14m</span></div>
+            <div class="src-tile__title">EU, India negotiators report substantive progress in Brussels round</div>
+          </a>
+          <a href="#" class="src-tile">
+            <div class="src-tile__head"><span class="src-tile__name">FT</span><span class="src-tile__time">38m</span></div>
+            <div class="src-tile__title">Auto tariffs and wine remain hurdles as EU eyes India deal</div>
+          </a>
+          <a href="#" class="src-tile">
+            <div class="src-tile__head"><span class="src-tile__name">The Hindu</span><span class="src-tile__time">1h</span></div>
+            <div class="src-tile__title">India says EU automotive tariff gap has narrowed</div>
+          </a>
+          <a href="#" class="src-tile">
+            <div class="src-tile__head"><span class="src-tile__name">Bloomberg</span><span class="src-tile__time">1h</span></div>
+            <div class="src-tile__title">India deal would be EU's biggest trade pact in a decade</div>
+          </a>
+          <a href="#" class="src-tile">
+            <div class="src-tile__head"><span class="src-tile__name">BBC</span><span class="src-tile__time">2h</span></div>
+            <div class="src-tile__title">Long-stalled EU–India talks show signs of breakthrough</div>
+          </a>
+          <a href="#" class="src-tile">
+            <div class="src-tile__head"><span class="src-tile__name">Indian Express</span><span class="src-tile__time">2h</span></div>
+            <div class="src-tile__title">Commerce ministry briefs PMO on pact contours</div>
+          </a>
+        </div>
+      </section>
+
+      <section class="tl" aria-label="Timeline">
+        <h2 class="tl__h">How this story developed</h2>
+        <div class="tl-ev">
+          <span class="tl-ev__t">14m</span>
+          <span class="tl-ev__x"><strong>Reuters</strong> publishes briefing from two officials describing progress as substantive.</span>
+        </div>
+        <div class="tl-ev">
+          <span class="tl-ev__t">1h</span>
+          <span class="tl-ev__x">Indian commerce ministry confirms narrowing of automotive tariff gap.</span>
+        </div>
+        <div class="tl-ev">
+          <span class="tl-ev__t">2h</span>
+          <span class="tl-ev__x">Picked up by 6 more outlets · <strong>buzz threshold crossed</strong>.</span>
+        </div>
+        <div class="tl-ev">
+          <span class="tl-ev__t">3h</span>
+          <span class="tl-ev__x">First mention surfaces in European trade press; not yet clustered.</span>
+        </div>
+      </section>
+
+      <section class="related" aria-label="Related">
+        <h2 class="related__h">Related</h2>
+        <div class="related__grid">
+          <a href="#article" class="tile tile--1x1 s-intl">
+            <div class="tile__cat"><span class="k-intl">Intl</span><span class="tile__cat-time">2d</span></div>
+            <h2 class="tile__title">India eyes minilateral trade arrangements amid WTO impasse</h2>
+            <div class="tile__src">5 src</div>
+          </a>
+          <a href="#article" class="tile tile--1x1 s-biz">
+            <div class="tile__cat"><span class="k-biz">Biz</span><span class="tile__cat-time">5d</span></div>
+            <h2 class="tile__title">EU auto exporters lobby for Indian tariff cuts</h2>
+            <div class="tile__src">4 src</div>
+          </a>
+          <a href="#article" class="tile tile--1x1 s-pol">
+            <div class="tile__cat"><span class="k-pol">Pol</span><span class="tile__cat-time">1w</span></div>
+            <h2 class="tile__title">Delhi readies summit agenda with European partners</h2>
+            <div class="tile__src">6 src</div>
+          </a>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <a href="#home">← Back to top</a>
+        <span style="margin-left:auto">Updates every 15 minutes</span>
+      </footer>
+    </article>
+  </section>
+
+  <!-- ============================================================
+       ARCHIVE
+       ============================================================ -->
+  <section class="view" id="archive">
+
+    <header class="mast">
+      <a href="#home" class="mast__brand">Buzz<em>news</em></a>
+      <div class="mast__meta"><a href="#home" class="mast__back">← Home</a></div>
+    </header>
+
+    <section class="archive">
+      <div class="archive__head">
+        <h1 class="archive__title">Archive</h1>
+        <p class="archive__sub">312 clusters tracked · 67 published this week</p>
+      </div>
+
+      <!-- 4 windows as a 2x2 mini-mosaic -->
+      <div class="windows">
+        <a href="#archive" class="win">
+          <span class="win__label">Today</span>
+          <span class="win__head">EU and India close in on trade pact</span>
+          <span class="win__foot">12 articles · 24 May</span>
+        </a>
+        <a href="#archive" class="win is-active">
+          <span class="win__label">This week</span>
+          <span class="win__head">RBI signals rate cut as inflation eases</span>
+          <span class="win__foot">67 articles · 19–24 May</span>
+        </a>
+        <a href="#archive" class="win">
+          <span class="win__label">This month</span>
+          <span class="win__head">Election commission concludes voter list overhaul</span>
+          <span class="win__foot">284 articles · May 2026</span>
+        </a>
+        <a href="#archive" class="win">
+          <span class="win__label">This year</span>
+          <span class="win__head">India's GDP growth revised upward to 7.2%</span>
+          <span class="win__foot">2,148 articles · 2026 so far</span>
+        </a>
+      </div>
+
+      <!-- Ranked mini-mosaic -->
+      <div class="rank-mos">
+        <a href="#article" class="rank-tile s-intl">
+          <span class="rank-tile__n">01</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-intl">International</div>
+            <div class="rank-tile__title">EU and India close in on long-stalled trade pact ahead of June summit</div>
+            <div class="rank-tile__src">9 src · 14m ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-biz">
+          <span class="rank-tile__n">02</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-biz">Business</div>
+            <div class="rank-tile__title">RBI signals possible rate cut as April inflation hits 18-month low</div>
+            <div class="rank-tile__src">11 src · 3h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-tech">
+          <span class="rank-tile__n">03</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-tech">Tech</div>
+            <div class="rank-tile__title">Anthropic releases Claude Opus 4.7 with 500K context, lower price</div>
+            <div class="rank-tile__src">8 src · 2h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-intl">
+          <span class="rank-tile__n">04</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-intl">International</div>
+            <div class="rank-tile__title">Cyclone Remal weakens to deep depression after Bangladesh landfall</div>
+            <div class="rank-tile__src">9 src · 5h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-sport">
+          <span class="rank-tile__n">05</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-sport">Sport</div>
+            <div class="rank-tile__title">RCB hold off Punjab to lift maiden IPL title in low-scoring final</div>
+            <div class="rank-tile__src">11 src · 3h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-pol">
+          <span class="rank-tile__n">06</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-pol">Politics</div>
+            <div class="rank-tile__title">Supreme Court reserves verdict on electoral bonds disclosure timeline</div>
+            <div class="rank-tile__src">7 src · 1h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-biz">
+          <span class="rank-tile__n">07</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-biz">Business</div>
+            <div class="rank-tile__title">TCS, Infosys flag US visa uncertainty in revised quarterly guidance</div>
+            <div class="rank-tile__src">6 src · 4h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-film">
+          <span class="rank-tile__n">08</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-film">Film</div>
+            <div class="rank-tile__title">Payal Kapadia's All We Imagine wins festival top prize</div>
+            <div class="rank-tile__src">7 src · 6h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-sci">
+          <span class="rank-tile__n">09</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-sci">Science</div>
+            <div class="rank-tile__title">ISRO sets July window for next Gaganyaan uncrewed test flight</div>
+            <div class="rank-tile__src">6 src · 7h ago</div>
+          </div>
+        </a>
+        <a href="#article" class="rank-tile s-intl">
+          <span class="rank-tile__n">10</span>
+          <div class="rank-tile__body">
+            <div class="rank-tile__cat k-intl">International</div>
+            <div class="rank-tile__title">G7 finance ministers convene on Russian asset windfall mechanism</div>
+            <div class="rank-tile__src">8 src · 8h ago</div>
+          </div>
+        </a>
+      </div>
+
+      <footer class="foot">
+        <a href="#home">← Back to top</a>
+        <span style="margin-left:auto">Rankings refresh hourly</span>
+      </footer>
+    </section>
+  </section>
+
+  <!-- ============================================================
+       HOME — HI (parallel surface, not a translation)
+       ============================================================ -->
+  <section class="view" id="home-hi" lang="hi">
+
+    <header class="mast">
+      <h1 class="mast__brand">Buzz<em>news</em><span class="dot" aria-hidden="true"></span></h1>
+      <div class="mast__meta">
+        शनि 24 मई
+        <span class="mast__lang"><a href="#home">EN</a>·<a href="#home-hi" class="is-active">HI</a></span>
+      </div>
+    </header>
+
+    <section class="mos">
+
+      <a href="#article" class="tile tile--2x2 s-intl">
+        <div class="tile__cat">
+          <span><span class="hot"></span>अंतरराष्ट्रीय</span>
+          <span class="tile__cat-time">14 मि</span>
+        </div>
+        <h2 class="tile__title">यूरोपीय संघ और भारत के बीच व्यापार समझौते पर वार्ता निर्णायक मोड़ पर, जून शिखर सम्मेलन से पहले प्रगति</h2>
+        <div class="tile__src"><strong>रॉयटर्स</strong> · <strong>द हिन्दू</strong> · <strong>बीबीसी</strong> · +6 स्रोत</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-biz">
+        <div class="tile__cat">
+          <span class="k-biz">कारोबार</span>
+          <span class="tile__cat-time">3 घं</span>
+        </div>
+        <h2 class="tile__title">महंगाई दर 18 महीनों के निचले स्तर पर, आरबीआई ब्याज दर कटौती का संकेत</h2>
+        <div class="tile__src"><strong>मिंट</strong> · <strong>रॉयटर्स</strong> · +9</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-tech">
+        <div class="tile__cat">
+          <span class="k-tech"><span class="hot"></span>तकनीक</span>
+          <span class="tile__cat-time">2 घं</span>
+        </div>
+        <h2 class="tile__title">एंथ्रोपिक का नया क्लॉड ओपस 4.7 जारी, कीमत में कटौती</h2>
+        <div class="tile__src"><strong>टेकक्रंच</strong> · +6</div>
+      </a>
+
+      <a href="#article" class="tile tile--1x1 s-sport">
+        <div class="tile__cat"><span class="k-sport">खेल</span><span class="tile__cat-time">3 घं</span></div>
+        <h2 class="tile__title">आरसीबी ने पहली बार आईपीएल जीता</h2>
+        <div class="tile__src">11 स्रोत</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-pol">
+        <div class="tile__cat"><span class="k-pol">राज</span><span class="tile__cat-time">1 घं</span></div>
+        <h2 class="tile__title">चुनावी बॉन्ड पर सुप्रीम कोर्ट का फैसला सुरक्षित</h2>
+        <div class="tile__src">7 स्रोत</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-film">
+        <div class="tile__cat"><span class="k-film">सिनेमा</span><span class="tile__cat-time">6 घं</span></div>
+        <h2 class="tile__title">कपाड़िया की फिल्म ने जीता शीर्ष पुरस्कार</h2>
+        <div class="tile__src">7 स्रोत</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-sci">
+        <div class="tile__cat"><span class="k-sci">विज्ञान</span><span class="tile__cat-time">7 घं</span></div>
+        <h2 class="tile__title">इसरो ने अगले गगनयान परीक्षण की तारीख तय की</h2>
+        <div class="tile__src">6 स्रोत</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-intl">
+        <div class="tile__cat">
+          <span class="k-intl">अंतरराष्ट्रीय</span>
+          <span class="tile__cat-time">5 घं</span>
+        </div>
+        <h2 class="tile__title">बांग्लादेश में चक्रवात रेमल कमजोर पड़कर गहरे दबाव में बदला</h2>
+        <div class="tile__src"><strong>एपी</strong> · <strong>बीबीसी</strong> · +7</div>
+      </a>
+
+      <a href="#article" class="tile tile--2x1 s-biz">
+        <div class="tile__cat">
+          <span class="k-biz">कारोबार</span>
+          <span class="tile__cat-time">4 घं</span>
+        </div>
+        <h2 class="tile__title">टीसीएस, इन्फोसिस ने अमेरिकी वीज़ा अनिश्चितता का संकेत दिया</h2>
+        <div class="tile__src"><strong>मिंट</strong> · <strong>रॉयटर्स</strong> · +4</div>
+      </a>
+
+      <a href="#article" class="tile tile--1x1 s-tech">
+        <div class="tile__cat"><span class="k-tech">तक</span><span class="tile__cat-time">10 घं</span></div>
+        <h2 class="tile__title">यूरोपीय संघ की एआई डेटा जांच</h2>
+        <div class="tile__src">6 स्रोत</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-intl">
+        <div class="tile__cat"><span class="k-intl">अंत</span><span class="tile__cat-time">8 घं</span></div>
+        <h2 class="tile__title">रूसी संपत्ति पर जी-7 की बैठक</h2>
+        <div class="tile__src">8 स्रोत</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-gen">
+        <div class="tile__cat"><span class="k-gen">सामा</span><span class="tile__cat-time">11 घं</span></div>
+        <h2 class="tile__title">हैदराबाद में मई का सबसे गर्म दिन</h2>
+        <div class="tile__src">4 स्रोत</div>
+      </a>
+      <a href="#article" class="tile tile--1x1 s-sport">
+        <div class="tile__cat"><span class="k-sport">खेल</span><span class="tile__cat-time">12 घं</span></div>
+        <h2 class="tile__title">फ्रेंच ओपन के पहले दौर में सिनर और स्विएटेक की जीत</h2>
+        <div class="tile__src">7 स्रोत</div>
+      </a>
+
+    </section>
+
+    <footer class="foot">
+      <a href="#archive">संग्रह</a><a href="#">स्रोत</a><a href="#">हमारे बारे में</a><a href="#">गोपनीयता</a>
+      <span style="margin-left:auto">हैदराबाद से</span>
+    </footer>
+  </section>
+
+</main>
+
+</body>
+</html>

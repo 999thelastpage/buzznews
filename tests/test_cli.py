@@ -13,4 +13,4 @@ def test_settings_load():
     s = get_settings()
     assert s.EMBED_DIM == 768
     assert s.SCORE_TIME_GRAVITY == 1.5
-    assert s.OPENCLAW_GATEWAY_URL == "http://127.0.0.1:18789"
+    assert s.OPENCLAW_GATEWAY_URL == "http://127.0.0.1:19262"

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import numpy as np
@@ -79,11 +79,11 @@ async def _find_nearest_cluster(
 ) -> Optional[tuple[int, np.ndarray]]:
     result = await session.execute(
         select(Cluster)
-        .where(not Cluster.is_published)
+        .where(Cluster.is_published == False)  # noqa: E712
         .where(
             Cluster.last_seen_at
             >= datetime.now(timezone.utc).replace(microsecond=0)
-            - datetime.timedelta(hours=RECENT_WINDOW_HOURS)
+            - timedelta(hours=RECENT_WINDOW_HOURS)
         )
     )
     clusters = list(result.scalars().all())
@@ -107,8 +107,8 @@ async def _find_nearest_cluster(
     return None
 
 
-def _update_cluster_counters(cluster_id: int, session) -> None:
-    result = session.execute(
+async def _update_cluster_counters(cluster_id: int, session) -> None:
+    exec_result = session.execute(
         select(
             func.count(RawItem.id).label("source_count"),
             func.count(func.distinct(RawItem.source_id)).label("distinct_sources"),
@@ -118,14 +118,16 @@ def _update_cluster_counters(cluster_id: int, session) -> None:
         .select_from(RawItem)
         .join(Source, RawItem.source_id == Source.id)
         .where(RawItem.cluster_id == cluster_id)
-    ).fetchone()
+    )
+    result = await exec_result
+    row = result.fetchone()
 
-    source_count = result.source_count or 0
-    distinct_sources = result.distinct_sources or 0
-    authority_sum = float(result.authority_sum or 0)
-    tabloid_count = result.tabloid_count or 0
+    source_count = row.source_count or 0
+    distinct_sources = row.distinct_sources or 0
+    authority_sum = float(row.authority_sum or 0)
+    tabloid_count = row.tabloid_count or 0
 
-    session.execute(
+    await session.execute(
         update(Cluster)
         .where(Cluster.id == cluster_id)
         .values(
@@ -208,7 +210,7 @@ async def run_once() -> int:
                     .where(RawItem.id == item.id)
                     .values(cluster_id=cluster_id)
                 )
-                _update_cluster_counters(cluster_id, session)
+                await _update_cluster_counters(cluster_id, session)
                 await session.commit()
 
                 clustered_count += 1
@@ -295,7 +297,7 @@ async def sanity_sweep() -> int:
                 .where(Cluster.id == victim_id)
                 .values(is_published=True)
             )
-            _update_cluster_counters(survivor_id, session)
+            await _update_cluster_counters(survivor_id, session)
             await session.commit()
             merged += 1
             log.info(f"Sanity sweep: merged cluster {victim_id} into {survivor_id} (sim={sim:.3f})")
@@ -337,8 +339,8 @@ async def split_cluster(source_cluster_id: int, item_ids: list[int]) -> int:
             await sess.commit()
 
     async with async_session_factory() as sess:
-        _update_cluster_counters(source_cluster_id, sess)
-        _update_cluster_counters(new_id, sess)
+        await _update_cluster_counters(source_cluster_id, sess)
+        await _update_cluster_counters(new_id, sess)
 
     log.info(f"Split {len(items)} items from cluster {source_cluster_id} into new cluster {new_id}")
     return len(items)

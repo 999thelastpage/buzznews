@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import select, update
-from sqlalchemy.dml import Insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from buzz_news.db import async_session_factory
 from buzz_news.models import Source, RawItem
@@ -87,14 +87,15 @@ async def run_once() -> int:
                 async with async_session_factory() as sess:
                     for item in items_to_insert:
                         try:
-                            sess.execute(
-                                Insert(RawItem).values(**item).on_conflict_do_nothing(
+                            await sess.execute(
+                                pg_insert(RawItem).values(**item).on_conflict_do_nothing(
                                     constraint="raw_items_source_id_external_id_key"
                                 )
                             )
-                        except Exception:
-                            pass
+                        except Exception as ex:
+                            log.debug(f"Skipping duplicate/error for {item.get('url', 'unknown')[:80]}: {ex}")
                     await sess.commit()
+                    log.info(f"Inserted {len(items_to_insert)} items for source {source.slug}")
 
                 async with async_session_factory() as sess:
                     await sess.execute(

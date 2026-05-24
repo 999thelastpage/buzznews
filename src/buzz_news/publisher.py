@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from buzz_news.config import get_settings
 from buzz_news.db import async_session_factory
@@ -19,7 +19,7 @@ log = logging.getLogger("buzz_news.publisher")
 async def _build_source_corpus(cluster_id: int) -> str:
     parts = []
     async with async_session_factory() as session:
-        result = session.execute(
+        result = await session.execute(
             select(RawItem.title, RawItem.body)
             .where(RawItem.cluster_id == cluster_id)
             .limit(20)
@@ -38,46 +38,209 @@ def _slugify(title: str, cluster_id: int) -> str:
     return f"{base}-{cluster_id}"
 
 
-def _render_article(article_id: int, lang: str, title: str, body: str, category: str, region: str, image_url: str | None, image_credit: str | None, sources: list[dict]) -> str:
-    from jinja2 import Template
-    template_path = Path(__file__).parent / "web" / "templates" / "article.html"
-    if template_path.exists():
-        with open(template_path) as f:
-            tpl = Template(f.read())
-    else:
-        tpl = Template("{{ title }}: {{ body }}")
+def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
+    """Assign tile sizes based on composite score: >=0.75 → 2x2, 0.45-0.75 → 2x1, <0.45 → 1x1.
+    At most one 2x2 per page (the highest-scoring)."""
+    result = []
+    has_2x2 = False
+    for art in articles:
+        score = art.get("score", 0.0)
+        if score >= 0.75 and not has_2x2:
+            art["tile_size"] = "2x2"
+            art["is_hot"] = art.get("is_hot", False)
+            has_2x2 = True
+        elif score >= 0.45:
+            art["tile_size"] = "2x1"
+            art["is_hot"] = False
+        else:
+            art["tile_size"] = "1x1"
+            art["is_hot"] = False
+        result.append(art)
+    return result
 
-    return tpl.render(
-        article_id=article_id,
+
+def _render(template_name: str, **ctx) -> str:
+    from jinja2 import Environment, FileSystemLoader
+    template_dir = Path(__file__).parent / "web" / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    env.globals["utc_now"] = lambda: datetime.now(timezone.utc)
+    try:
+        tpl = env.get_template(template_name)
+    except Exception:
+        return f"Template {template_name} not found"
+    return tpl.render(**ctx)
+
+
+def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, today_str: str) -> str:
+    articles = _compute_tile_sizes(articles)
+    labels = _get_labels(lang)
+    return _render(
+        "home.html",
         lang=lang,
-        title=title,
-        body=body,
-        category=category,
-        region=region,
-        image_url=image_url,
-        image_credit=image_credit,
-        sources=sources,
+        title=labels.get("site_name", "BuzzNews"),
+        articles=articles,
+        labels=labels,
+        date_str=date_str,
+        today_str=today_str,
+        cluster_count=cluster_count,
+        published_count=published_count,
     )
 
 
-def _render_home(articles: list[dict], lang: str) -> str:
-    from jinja2 import Template
-    template_path = Path(__file__).parent / "web" / "templates" / "home.html"
-    if template_path.exists():
-        with open(template_path) as f:
-            tpl = Template(f.read())
-    else:
-        return "Home page"
-    return tpl.render(lang=lang, articles=articles)
+_DEVANAGARI = str.maketrans("0123456789", "०१२३४५६७८९")
+
+
+def _format_date(dt: datetime, lang: str) -> str:
+    en_str = dt.strftime("%d %b %Y")
+    if lang == "hi":
+        return en_str.translate(_DEVANAGARI)
+    return en_str
+
+
+def _render_article(
+    article_id: int,
+    lang: str,
+    title: str,
+    body: str,
+    category: str,
+    region: str,
+    image_url: str | None,
+    image_credit: str | None,
+    article_sources: list[dict],
+    is_hot: bool,
+    next_sentence: str | None,
+    timeline_events: list[dict],
+    related_articles: list[dict],
+    published_at: datetime,
+) -> str:
+    return _render(
+        "article.html",
+        lang=lang,
+        title=title,
+        labels=_get_labels(lang),
+        date_str=_format_date(published_at, lang),
+        article={
+            "id": article_id,
+            "title_en": title,
+            "category": category,
+            "region": region,
+            "hero_image_url": image_url,
+            "hero_image_credit": image_credit,
+            "source_count": len(article_sources),
+        },
+        is_hot=is_hot,
+        body_paragraphs=[p.strip() for p in body.split("\n\n") if p.strip()],
+        article_sources=article_sources,
+        next_sentence=next_sentence,
+        timeline_events=timeline_events,
+        related_articles=related_articles,
+    )
+
+
+def _get_labels(lang: str) -> dict:
+    from buzz_news.web.i18n import get_labels
+    return get_labels(lang)
+
+
+async def render_home_pages(limit: int = 22) -> int:
+    """Render <STATIC_DIR>/{en,hi}/index.html with the top N published articles.
+    Returns the number of language files written."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(
+                Article.id,
+                Article.slug,
+                Article.title_en,
+                Article.title_hi,
+                Article.category,
+                Article.region,
+                Article.hero_image_url,
+                Article.published_at,
+                Cluster.current_score,
+                Cluster.source_count,
+            )
+            .join(Cluster, Article.cluster_id == Cluster.id)
+            .where(Article.verifier_passed == True)  # noqa: E712
+            .order_by(Cluster.current_score.desc())
+            .limit(limit)
+        )
+        rows = result.fetchall()
+
+        if not rows:
+            log.warning("render_home_pages: no verified articles to render")
+            return 0
+
+        article_ids = [r.id for r in rows]
+        src_result = await session.execute(
+            select(ArticleSource.article_id, ArticleSource.source_name)
+            .where(ArticleSource.article_id.in_(article_ids))
+            .order_by(ArticleSource.article_id, ArticleSource.rank)
+        )
+        names_by_article: dict[int, list[str]] = {}
+        for art_id, name in src_result.fetchall():
+            names_by_article.setdefault(art_id, []).append(name)
+
+    def _to_dict(row, lang: str) -> dict | None:
+        if lang == "hi" and not row.title_hi:
+            return None
+        names = names_by_article.get(row.id, [])
+        return {
+            "id": row.id,
+            "slug": row.slug,
+            "title_en": row.title_en,
+            "title_hi": row.title_hi,
+            "category": row.category or "general",
+            "region": row.region,
+            "hero_image_url": row.hero_image_url,
+            "published_at": row.published_at,
+            "score": float(row.current_score or 0),
+            "source_count": row.source_count or len(names) or 1,
+            "source_names": names,
+        }
+
+    async with async_session_factory() as session:
+        cluster_count_row = await session.execute(
+            select(func.count(Cluster.id))
+        )
+        cluster_count = cluster_count_row.scalar() or 0
+        published_count_row = await session.execute(
+            select(func.count(Article.id)).where(Article.verifier_passed == True)  # noqa: E712
+        )
+        published_count = published_count_row.scalar() or 0
+
+    now = datetime.now(timezone.utc)
+    today_str = now.strftime("%Y-%m-%d")
+    static_dir = Path(settings.STATIC_DIR)
+    written = 0
+
+    for lang in ("en", "hi"):
+        articles = [a for a in (_to_dict(r, lang) for r in rows) if a is not None]
+        if not articles:
+            continue
+        html = _render_home(
+            articles=articles,
+            lang=lang,
+            cluster_count=cluster_count,
+            published_count=published_count,
+            date_str=_format_date(now, lang),
+            today_str=today_str,
+        )
+        out_path = static_dir / lang / "index.html"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(html)
+        log.info(f"Rendered home page: {out_path} ({len(articles)} tiles)")
+        written += 1
+    return written
 
 
 async def publish_top_n(n: int = 10) -> int:
     published = 0
 
     async with async_session_factory() as session:
-        result = session.execute(
+        result = await session.execute(
             select(Cluster)
-            .where(not Cluster.is_published)
+            .where(Cluster.is_published == False)  # noqa: E712
             .where(Cluster.current_score > 0)
             .order_by(Cluster.current_score.desc())
             .limit(n)
@@ -86,9 +249,10 @@ async def publish_top_n(n: int = 10) -> int:
 
     for cluster in clusters:
         async with async_session_factory() as session:
-            existing = session.execute(
+            result = await session.execute(
                 select(Article).where(Article.cluster_id == cluster.id)
-            ).scalar_one_or_none()
+            )
+            existing = result.scalar_one_or_none()
 
             if existing and existing.updated_at:
                 age = datetime.now(timezone.utc) - existing.updated_at
@@ -119,23 +283,25 @@ async def publish_top_n(n: int = 10) -> int:
         slug = _slugify(draft.title_en, cluster.id)
 
         async with async_session_factory() as session:
-            result = session.execute(
+            cat_result = await session.execute(
                 select(Cluster.category, Cluster.region)
                 .where(Cluster.id == cluster.id)
-            ).fetchone()
-            category = result[0] if result else "general"
-            region = result[1] if result else "GLOBAL"
+            )
+            cat_row = cat_result.fetchone()
+            category = cat_row[0] if cat_row else "general"
+            region = cat_row[1] if cat_row else "GLOBAL"
 
         async with async_session_factory() as session:
-            rows = session.execute(
-                select(RawItem.url, RawItem.title, Source.name)
+            rows_result = await session.execute(
+                select(RawItem.id, RawItem.url, RawItem.title, Source.name, RawItem.published_at)
                 .select_from(RawItem)
                 .join(Source, RawItem.source_id == Source.id)
                 .where(RawItem.cluster_id == cluster.id)
                 .limit(6)
-            ).fetchall()
+            )
+            rows = rows_result.fetchall()
             article_sources = [
-                {"url": r[0], "title": r[1], "name": r[2]}
+                {"raw_item_id": r[0], "url": r[1], "title": r[2], "name": r[3], "published_at": r[4]}
                 for r in rows
             ]
 
@@ -160,15 +326,17 @@ async def publish_top_n(n: int = 10) -> int:
             if existing:
                 for key, val in article_record.items():
                     setattr(existing, key, val)
+                art_id = existing.id
             else:
                 art = Article(**article_record)
                 session.add(art)
                 await session.flush()
+                art_id = art.id
 
                 for rank, src in enumerate(article_sources):
                     session.add(ArticleSource(
                         article_id=art.id,
-                        raw_item_id=0,
+                        raw_item_id=src["raw_item_id"],
                         source_name=src["name"],
                         url=src["url"],
                         rank=rank,
@@ -181,12 +349,17 @@ async def publish_top_n(n: int = 10) -> int:
             )
             await session.commit()
 
-        static_dir = Path(settings.STATIC_DIR)
+        is_hot = False
+
         rendered_en = _render_article(
-            existing.id if existing else art.id, "en",
+            art_id, "en",
             draft.title_en, draft.body_en, category, region,
             hero_url, hero_credit, article_sources,
+            is_hot, getattr(draft, "next_sentence", None),
+            [], [],
+            datetime.now(timezone.utc),
         )
+        static_dir = Path(settings.STATIC_DIR)
         out_path_en = static_dir / "en" / "article" / f"{slug}.html"
         out_path_en.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path_en, "w") as f:
@@ -194,9 +367,12 @@ async def publish_top_n(n: int = 10) -> int:
 
         if draft.body_hi and hi_passed:
             rendered_hi = _render_article(
-                existing.id if existing else art.id, "hi",
+                art_id, "hi",
                 draft.title_hi, draft.body_hi, category, region,
                 hero_url, hero_credit, article_sources,
+                is_hot, getattr(draft, "next_sentence_hi", None),
+                [], [],
+                datetime.now(timezone.utc),
             )
             out_path_hi = static_dir / "hi" / "article" / f"{slug}.html"
             out_path_hi.parent.mkdir(parents=True, exist_ok=True)
@@ -207,6 +383,11 @@ async def publish_top_n(n: int = 10) -> int:
 
         published += 1
         log.info(f"Published article {cluster.id}: '{draft.title_en}' (verified={verifier_passed})")
+
+    try:
+        await render_home_pages()
+    except Exception as e:
+        log.exception(f"render_home_pages failed: {e}")
 
     return published
 

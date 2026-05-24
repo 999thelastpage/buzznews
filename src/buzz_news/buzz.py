@@ -26,7 +26,7 @@ async def detect_and_fire() -> int:
         recently_fired = set(recent_buzz.fetchall())
 
         result = await session.execute(
-            select(Cluster).where(not Cluster.is_published)
+            select(Cluster).where(Cluster.is_published == False)  # noqa: E712
         )
         clusters = list(result.scalars().all())
 

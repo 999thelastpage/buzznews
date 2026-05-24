@@ -2,6 +2,11 @@ import argparse
 import asyncio
 import sys
 import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from buzz_news.config import get_settings
 
@@ -29,10 +34,59 @@ async def cmd_migrate(args) -> int:
 
 
 async def cmd_seed_sources(args) -> int:
-    from scripts.seed_sources import seed_sources
-    log.info("Seeding sources from catalog...")
-    count = await seed_sources()
-    log.info(f"Seeded {count} sources")
+    import yaml
+    from sqlalchemy import select, insert
+    from pathlib import Path
+
+    from buzz_news.db import async_session_factory
+    from buzz_news.models import Source
+
+    import buzz_news as buzz_news_pkg
+    catalog_path = Path(buzz_news_pkg.__file__).parent / "sources" / "catalog.yaml"
+    with open(catalog_path) as f:
+        data = yaml.safe_load(f)
+
+    sources = data.get("sources", [])
+    if not sources:
+        log.warning("No sources found in catalog")
+        return 1
+
+    seeded = 0
+    async with async_session_factory() as session:
+        for src in sources:
+            slug = src["slug"]
+            result = await session.execute(select(Source).where(Source.slug == slug))
+            existing = result.scalar_one_or_none()
+
+            values = {
+                "name": src["name"],
+                "url": src["url"],
+                "kind": src["kind"],
+                "language": src["language"],
+                "region": src["region"],
+                "category": src["category"],
+                "authority": src.get("authority", 0.5),
+                "is_tabloid": src.get("is_tabloid", False),
+                "enabled": src.get("enabled", True),
+                "extra": src.get("extra", {}),
+            }
+
+            if existing:
+                await session.execute(
+                    pg_insert(Source).values(id=existing.id, **values).on_conflict_do_update(
+                        constraint="sources_slug_key",
+                        set_=values,
+                    )
+                )
+            else:
+                values["slug"] = slug
+                await session.execute(insert(Source).values(**values))
+
+            seeded += 1
+
+        await session.commit()
+
+    log.info(f"Seeded {seeded} sources from catalog")
     return 0
 
 
@@ -115,7 +169,7 @@ async def cmd_write_once(args) -> int:
     async with async_session_factory() as session:
         result = await session.execute(
             select(Cluster)
-            .where(not Cluster.is_published)
+            .where(Cluster.is_published == False)  # noqa: E712
             .order_by(Cluster.current_score.desc())
             .limit(settings.TOP_N_PER_CYCLE)
         )
@@ -143,42 +197,94 @@ async def cmd_publish_once(args) -> int:
 
 
 async def cmd_republish_today(args) -> int:
-    from datetime import datetime as dt, timezone as tz
-    from buzz_news.publisher import publish_top_n
-    from buzz_news.models import Article
-    from buzz_news.db import async_session_factory
-    from sqlalchemy import select
+    from buzz_news.publisher import render_home_pages
 
-    log.info("Republishing today's articles...")
-    today_start = dt.now(tz.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-
-    async with async_session_factory() as session:
-        result = await session.execute(
-            select(Article).where(Article.published_at >= today_start)
-        )
-        articles = list(result.scalars().all())
-
-    republished = 0
-    for art in articles:
-        await publish_top_n(1)
-        republished += 1
-
-    log.info(f"Republished {republished} articles")
+    log.info("Re-rendering home pages from existing published articles...")
+    written = await render_home_pages()
+    log.info(f"Rendered {written} home page(s)")
     return 0
 
 
 async def cmd_rollup(args) -> int:
-    log.info("Rollup — implement Phase 7")
+    from datetime import datetime as dt, timezone as tz
+    from buzz_news.rollups import build_daily, build_weekly, build_monthly, build_yearly
+
+    if not args.period or not args.date:
+        log.error("--period and --date are required")
+        return 1
+
+    period = args.period
+    date_str = args.date
+
+    if period == "day":
+        date = dt.strptime(date_str, "%Y-%m-%d").replace(tzinfo=tz.utc)
+        log.info(f"Building daily rollup for {date_str}")
+        await build_daily(date)
+    elif period == "week":
+        date = dt.strptime(date_str, "%Y-%m-%d").replace(tzinfo=tz.utc)
+        log.info(f"Building weekly rollup for week starting {date_str}")
+        await build_weekly(date)
+    elif period == "month":
+        parts = date_str.split("-")
+        year, month = int(parts[0]), int(parts[1])
+        log.info(f"Building monthly rollup for {year}-{month:02d}")
+        await build_monthly(year, month)
+    elif period == "year":
+        year = int(date_str)
+        log.info(f"Building yearly rollup for {year}")
+        await build_yearly(year)
+    else:
+        log.error(f"Unknown period: {period}")
+        return 1
+
     return 0
 
 
 async def cmd_retention_cleanup(args) -> int:
-    log.info("Retention cleanup — implement Phase 9")
+    from buzz_news.db import async_session_factory
+    from buzz_news.models import RawItem, ClusterScore, BuzzEvent
+
+    cutoff_raw = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_RAW_ITEMS_DAYS)
+    cutoff_scores = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_CLUSTER_SCORES_DAYS)
+    cutoff_buzz = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_BUZZ_EVENTS_DAYS)
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            sa.delete(RawItem).where(RawItem.published_at < cutoff_raw)
+        )
+        raw_deleted = result.rowcount
+
+        result = await session.execute(
+            sa.delete(ClusterScore).where(ClusterScore.computed_at < cutoff_scores)
+        )
+        scores_deleted = result.rowcount
+
+        result = await session.execute(
+            sa.delete(BuzzEvent).where(BuzzEvent.fired_at < cutoff_buzz)
+        )
+        buzz_deleted = result.rowcount
+
+        await session.commit()
+
+    images_dir = Path(settings.STATIC_DIR) / "images"
+    cutoff_images = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_IMAGES_DAYS)
+    images_deleted = 0
+    if images_dir.exists():
+        for item_dir in images_dir.iterdir():
+            if item_dir.is_dir() and item_dir.stat().st_mtime < cutoff_images.timestamp():
+                import shutil
+                shutil.rmtree(item_dir)
+                images_deleted += 1
+
+    log.info(f"Retention cleanup: {raw_deleted} raw_items, {scores_deleted} cluster_scores, {buzz_deleted} buzz_events, {images_deleted} image dirs deleted")
     return 0
 
 
 async def cmd_backfill_rollups(args) -> int:
-    log.info("Backfill rollups — implement Phase 7")
+    from buzz_news.rollups import backfill_rollups
+    log.info(f"Backfilling rollups for last {args.days} days...")
+    await backfill_rollups(args.days)
+    log.info("Backfill complete")
     return 0
 
 
@@ -197,7 +303,29 @@ async def cmd_split_cluster(args) -> int:
 
 
 async def cmd_run_worker(args) -> int:
-    log.info("Run worker — implement Phase 7 (APScheduler)")
+    from buzz_news.scheduler import start, stop
+    import signal
+
+    log.info("Starting BuzzNews worker scheduler...")
+    start()
+
+    stop_event = asyncio.Event()
+
+    def _sigterm(signum, frame):
+        log.info("Received SIGTERM, shutting down...")
+        stop()
+        stop_event.set()
+
+    signal.signal(signal.SIGTERM, _sigterm)
+    signal.signal(signal.SIGINT, _sigterm)
+
+    log.info("Worker running. Press Ctrl+C or send SIGTERM to stop.")
+    try:
+        await stop_event.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop()
     return 0
 
 

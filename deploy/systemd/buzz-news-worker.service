@@ -1,15 +1,14 @@
 [Unit]
 Description=BuzzNews background worker
-After=network.target postgresql.service redis-server.service
-Requires=postgresql.service redis-server.service
+After=network.target
 
 [Service]
 Type=simple
-User=buzz
-Group=buzz
-WorkingDirectory=/opt/buzz-news
-EnvironmentFile=/opt/buzz-news/.env
-ExecStart=/opt/buzz-news/.venv/bin/python -m buzz_news run-worker
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/buzznews
+EnvironmentFile=/home/ubuntu/buzznews/.env
+ExecStart=/home/ubuntu/buzznews/.venv/bin/python -m buzz_news run-worker
 Restart=always
 RestartSec=5
 StandardOutput=append:/var/log/buzz-news/worker.log

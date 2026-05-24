@@ -36,7 +36,21 @@ def _build_sources_block(items: list[dict], sources: list[dict]) -> str:
     return "\n".join(blocks)
 
 
-def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 900) -> dict:
+def _parse_json_tolerant(raw: str) -> dict:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        from json_repair import repair_json
+        return json.loads(repair_json(raw))
+
+
+def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> dict:
     from google import genai
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
     response = client.models.generate_content(
@@ -49,17 +63,10 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 900) -
             "response_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}, "required": ["title", "body"]},
         },
     )
-    raw = response.text.strip()
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    return json.loads(raw)
+    return _parse_json_tolerant(response.text)
 
 
-def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 900) -> dict:
+def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> dict:
     import anthropic
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     response = client.messages.create(
@@ -68,13 +75,7 @@ def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 900
         temperature=temperature,
         messages=[{"role": "user", "content": prompt}],
     )
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    return json.loads(raw)
+    return _parse_json_tolerant(response.content[0].text)
 
 
 EN_WRITER_PROMPT = """You are an editorial summarizer for a news aggregation site. Your job is to synthesize a short editorial summary from multiple sources covering the same event, in English.

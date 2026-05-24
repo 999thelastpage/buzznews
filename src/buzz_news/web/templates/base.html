@@ -2,31 +2,14 @@
 <html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#F4F0E8" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#14110E" media="(prefers-color-scheme: dark)">
     <title>{% block title %}{{ title }}{% endblock %}</title>
-    <meta name="description" content="{{ description or '' }}">
-    <meta property="og:title" content="{{ title }}">
-    <meta property="og:description" content="{{ description or '' }}">
-    {% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
-    <meta property="og:type" content="article">
-    <meta property="og:locale" content="{{ lang == 'hi' and 'hi_IN' or 'en_US' }}">
-    <link rel="canonical" href="{{ canonical_url or '' }}">
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js" defer></script>
+    {% include "_inline_styles.html" %}
     {% block head %}{% endblock %}
 </head>
 <body>
-    <header>
-        <nav>
-            <a href="/{{ lang }}/">{{ labels.site_name }}</a>
-            <a href="/{{ lang }}/category/international">{{ labels.category }}</a>
-        </nav>
-    </header>
-    <main>
-        {% block content %}{% endblock %}
-    </main>
-    <footer>
-        <p>&copy; 2026 BuzzNews</p>
-    </footer>
+    {% block body %}{% endblock %}
 </body>
 </html>
