@@ -94,7 +94,14 @@ async def cmd_cluster_once(args) -> int:
 
 
 async def cmd_score_once(args) -> int:
-    log.info("Score once — implement Phase 3")
+    from buzz_news.scorer import score_all_recent
+    from buzz_news.buzz import detect_and_fire
+    log.info("Running scoring cycle...")
+    scored = await score_all_recent()
+    log.info(f"Scored {scored} clusters")
+    log.info("Running buzz detection...")
+    fired = await detect_and_fire()
+    log.info(f"Buzz detection: {fired} events fired")
     return 0
 
 
