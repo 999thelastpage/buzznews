@@ -139,7 +139,7 @@ def _render(template_name: str, **ctx) -> str:
     return tpl.render(**ctx)
 
 
-def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, month_str: str) -> str:
+def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, month_str: str, brief_articles: list[dict] | None = None) -> str:
     articles = _interleave_categories(articles)
     articles = _compute_tile_sizes(articles)
     labels = _get_labels(lang)
@@ -148,6 +148,7 @@ def _render_home(articles: list[dict], lang: str, cluster_count: int, published_
         lang=lang,
         title=labels.get("site_name", "BuzzNews"),
         articles=articles,
+        brief_articles=brief_articles or [],
         labels=labels,
         date_str=date_str,
         month_str=month_str,
@@ -362,12 +363,48 @@ async def render_home_pages(limit: int = 15) -> int:
     static_dir = Path(settings.STATIC_DIR)
     written = 0
 
-    _, _, _, month_str = _ist_day_window(now)
+    start_utc, end_utc, _, month_str = _ist_day_window(now)
+
+    # The Brief sidebar: today's top trends by score in the IST day window.
+    # Independent of the 15-article home grid so stories that fell out of
+    # the grid still surface here if they had high traction.
+    async with async_session_factory() as session:
+        brief_result = await session.execute(
+            select(
+                Article.slug,
+                Article.title_en,
+                Article.title_hi,
+                Cluster.category.label("category"),
+                Article.published_at,
+                Cluster.current_score,
+            )
+            .join(Cluster, Article.cluster_id == Cluster.id)
+            .where(Article.published_at >= start_utc)
+            .where(Article.published_at < end_utc)
+            .where(*[~Article.title_en.contains(p) for p in garbage_phrases])
+            .order_by(Cluster.current_score.desc())
+            .limit(7)
+        )
+        brief_rows = brief_result.fetchall()
+
+    def _brief_dict(row, lang: str) -> dict | None:
+        if lang == "hi" and not row.title_hi:
+            return None
+        return {
+            "slug": row.slug,
+            "title_en": row.title_en,
+            "title_hi": row.title_hi,
+            "category": row.category or "general",
+            "published_at": row.published_at,
+        }
 
     for lang in ("en", "hi"):
         articles = [a for a in (_to_dict(r, lang) for r in rows) if a is not None]
         if not articles:
             continue
+        brief_articles = [
+            b for b in (_brief_dict(r, lang) for r in brief_rows) if b is not None
+        ]
         html = _render_home(
             articles=articles,
             lang=lang,
@@ -375,12 +412,13 @@ async def render_home_pages(limit: int = 15) -> int:
             published_count=published_count,
             date_str=_format_date(now, lang),
             month_str=month_str,
+            brief_articles=brief_articles,
         )
         out_path = static_dir / lang / "index.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)
-        log.info(f"Rendered home page: {out_path} ({len(articles)} tiles)")
+        log.info(f"Rendered home page: {out_path} ({len(articles)} tiles, {len(brief_articles)} brief items)")
         written += 1
     return written
 
@@ -540,10 +578,10 @@ async def publish_top_n(n: int = 10) -> int:
         verifier_notes = {"en_unverified": en_unverified, "hi_unverified": hi_unverified}
         verifier_passed = en_passed and hi_passed
 
-        hero_url = None
-        hero_credit = None
-        if verifier_passed:
-            hero_url, hero_credit = await pick_image(cluster.id, draft.title_en, draft.body_en)
+        # Image fetch is unconditional now — verifier is over-strict (94%
+        # rejection) and gating images on it left ~650/670 articles imageless.
+        # See project_image_gate_deferred.md.
+        hero_url, hero_credit = await pick_image(cluster.id, draft.title_en, draft.body_en)
 
         # Reuse existing slug on republish so URLs stay stable across LLM
         # title rewordings; only compute a fresh slug for brand-new articles.

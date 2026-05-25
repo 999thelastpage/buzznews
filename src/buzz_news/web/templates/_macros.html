@@ -140,24 +140,32 @@
 </header>
 {%- endmacro %}
 
-{# ===== DAILY BRIEF SIDEBAR ===== #}
+{# ===== DAILY BRIEF SIDEBAR =====
+   Shows day's top trends by Cluster.current_score in the IST day window —
+   independent of the 15-tile home grid, so stories that rotated out still
+   surface here if they had high traction. Each item is clickable. #}
 {% macro daily_brief(arts, lang, labels, date_str) -%}
 <div class="daily-brief" style="height: 100%; display: flex; flex-direction: column;">
   <div class="brief-header">
     <h2 class="brief-title">{{ labels.the_brief or 'The Brief' }}</h2>
-    <span class="brief-date">· {{ date_str }}</span>
+    <span class="brief-date">· {{ labels.brief_subtitle or "Today's top trends" }}</span>
   </div>
   <ul class="brief-list">
-    {% for art in arts[:5] %}
+    {% for art in arts[:7] %}
+      {% if art.slug %}
       {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
       {% set c_pref = cat_prefix(art.category) %}
       <li class="brief-item">
-        <div class="brief-item__meta">
-          <span class="brief-item__dot" style="background-color: var(--c-{{ c_pref }});"></span>
-          <span class="brief-item__cat">{{ cat_name(art.category, labels) }}</span>
-        </div>
-        <p class="brief-item__text">{{ title }}</p>
+        <a href="/{{ lang }}/article/{{ art.slug }}" class="brief-item__link">
+          <div class="brief-item__meta">
+            <span class="brief-item__dot" style="background-color: var(--c-{{ c_pref }});"></span>
+            <span class="brief-item__cat">{{ cat_name(art.category, labels) }}</span>
+            <span class="brief-item__rank">{{ "%02d"|format(loop.index) }}</span>
+          </div>
+          <p class="brief-item__text">{{ title }}</p>
+        </a>
       </li>
+      {% endif %}
     {% endfor %}
   </ul>
 </div>
@@ -169,6 +177,12 @@
 {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
 {% set c_pref = cat_prefix(c) %}
 <div class="py-1 relative h-full flex flex-col">
+  {% if art.hero_image_url %}
+  <a href="/{{ lang }}/article/{{ art.slug }}" class="card-image card-image--lead">
+    <img src="{{ art.hero_image_url }}" alt="" loading="lazy" decoding="async">
+  </a>
+  {% endif %}
+
   <div class="flex justify-between items-start mb-3">
     <div class="flex items-center gap-4">
       <span class="text-[10px] tracking-widest uppercase font-semibold {{ cat_k(c) }}">
@@ -208,6 +222,12 @@
 {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
 {% set c_pref = cat_prefix(c) %}
 <div class="flex flex-col h-full">
+  {% if is_large and art.hero_image_url %}
+  <a href="/{{ lang }}/article/{{ art.slug }}" class="card-image">
+    <img src="{{ art.hero_image_url }}" alt="" loading="lazy" decoding="async">
+  </a>
+  {% endif %}
+
   <div class="flex justify-between items-start mb-2">
     <div class="flex items-center gap-3">
       <span class="text-[10px] tracking-widest uppercase font-semibold {{ cat_k(c) }}">

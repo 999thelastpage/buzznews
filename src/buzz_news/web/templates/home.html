@@ -15,7 +15,7 @@
     {% endif %}
 
     <div class="col-span-12 lg:col-span-4 lg:row-span-2 tile">
-      {{ daily_brief(articles, lang, labels, date_str) }}
+      {{ daily_brief(brief_articles or articles, lang, labels, date_str) }}
     </div>
 
     {# Subsequent articles dynamically positioned in grid #}

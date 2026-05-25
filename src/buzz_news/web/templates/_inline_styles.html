@@ -279,6 +279,29 @@ html.dark .tile, html.dark .tile-lg {
   }
 }
 
+/* Card hero image (lead story + card-large news cards) */
+.card-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  margin: 0 0 14px;
+  background: var(--grid-line);
+  border-radius: 2px;
+}
+.card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.4s ease;
+}
+.card-image:hover img { transform: scale(1.03); }
+.card-image--lead { margin-bottom: 18px; }
+@media (min-width: 1024px) {
+  .card-image--lead { aspect-ratio: 21 / 9; }
+}
+
 /* category Colors & Sparklines */
 .k-intl  { color: var(--c-intl); } .s-intl  { background-color: var(--c-intl); }
 .k-pol   { color: var(--c-pol); } .s-pol   { background-color: var(--c-pol); }
@@ -320,6 +343,25 @@ html.dark .tile, html.dark .tile-lg {
   flex-direction: column;
   gap: 6px;
 }
+.brief-item__link {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin: 0 -10px;
+  border-radius: 3px;
+  text-decoration: none;
+  color: inherit;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.brief-item__link:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+  opacity: 1;
+  transform: translateX(2px);
+}
+html.dark .brief-item__link:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
 .brief-item__meta {
   display: flex;
   align-items: center;
@@ -337,12 +379,24 @@ html.dark .tile, html.dark .tile-lg {
   font-weight: 600;
   color: var(--muted-soft);
 }
+.brief-item__rank {
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-soft);
+  font-weight: 600;
+}
 .brief-item__text {
   font-family: var(--serif);
   font-size: 15px;
   font-weight: 700;
   line-height: 1.35;
   color: var(--ink-muted);
+  transition: color 0.15s ease;
+}
+.brief-item__link:hover .brief-item__text {
+  color: var(--ink);
 }
 html.dark .brief-item__text {
   color: var(--ink-muted);
@@ -585,17 +639,18 @@ html.dark .src-tile { background: rgba(255,255,255,0.02); }
 .archive__title { font-family: var(--serif); font-size: 26px; font-weight: 700; line-height: 1.1; letter-spacing: -0.012em; margin-bottom: 4px; }
 .archive__sub { font-family: var(--sans); font-size: 11.5px; color: var(--muted); }
 .windows { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
-.win { background: rgba(0,0,0,0.02); border: 1px solid var(--grid-line); padding: 12px 14px 14px; display: flex; flex-direction: column; min-height: 120px; }
+.win { background: rgba(0,0,0,0.02); border: 1px solid var(--grid-line); border-left: 3px solid var(--grid-line); padding: 12px 14px 14px; display: flex; flex-direction: column; min-height: 120px; transition: background-color 0.2s ease, border-color 0.2s ease; }
 html.dark .win { background: rgba(255,255,255,0.02); }
-.win.is-active { background: #0E0B09; color: #F4F0E8; border-color: #0E0B09; }
-html.dark .win.is-active { background: #1a1a1a; color: #ffffff; border-color: #1a1a1a; }
+.win:hover { background: rgba(0,0,0,0.035); }
+html.dark .win:hover { background: rgba(255,255,255,0.04); }
+.win.is-active { background: rgba(154, 58, 58, 0.06); border-color: var(--grid-line); border-left-color: var(--buzz); }
+html.dark .win.is-active { background: rgba(239, 68, 68, 0.08); border-color: var(--grid-line); border-left-color: var(--buzz); }
 .win__label { font-family: var(--sans); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); margin-bottom: 6px; }
-.win.is-active .win__label { color: rgba(244,240,232,0.55); }
+.win.is-active .win__label { color: var(--buzz); font-weight: 700; }
 .win__head { font-family: var(--serif); font-size: 14px; line-height: 1.2; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.win.is-active .win__head { color: #F4F0E8; }
-html.dark .win.is-active .win__head { color: #ffffff; }
+.win.is-active .win__head { color: var(--ink); }
 .win__foot { font-family: var(--sans); font-size: 10px; color: var(--muted); margin-top: auto; text-transform: uppercase; letter-spacing: 0.08em; }
-.win.is-active .win__foot { color: rgba(244,240,232,0.55); }
+.win.is-active .win__foot { color: var(--muted); }
 
 /* Rank Moscow */
 .rank-mos { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
