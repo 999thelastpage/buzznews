@@ -96,7 +96,10 @@
 {%- endmacro %}
 
 {# ===== MASTHEAD ===== #}
-{% macro mast(lang, page, labels, date_str, articles=None) -%}{# date_str is used in right-hand side #}
+{% macro mast(lang, page, labels, date_str, articles=None, lang_switch=None) -%}{# date_str is used in right-hand side #}
+{# lang_switch: optional dict {'en': url, 'hi': url}. Overrides the default
+   '/{lang}/{page}' lang toggle for pages outside the static path scheme
+   (e.g. /api/search?q=...&lang=...). #}
 <header class="mast">
   <div class="mast__container">
     {# Logo #}
@@ -123,9 +126,9 @@
     <div class="mast__meta">
       <span>{{ date_str|upper }}</span>
       <div class="mast__lang">
-        <a href="/en/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='en' %}class="is-active"{% endif %}>EN</a>
+        <a href="{% if lang_switch %}{{ lang_switch.en }}{% else %}/en/{% if page != 'home' %}{{ page }}{% endif %}{% endif %}" {% if lang=='en' %}class="is-active"{% endif %}>EN</a>
         <span style="color: var(--muted-soft);">·</span>
-        <a href="/hi/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='hi' %}class="is-active"{% endif %}>HI</a>
+        <a href="{% if lang_switch %}{{ lang_switch.hi }}{% else %}/hi/{% if page != 'home' %}{{ page }}{% endif %}{% endif %}" {% if lang=='hi' %}class="is-active"{% endif %}>HI</a>
       </div>
       <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle theme">
         <svg class="sun-icon" style="display: none; width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>

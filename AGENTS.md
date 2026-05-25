@@ -46,6 +46,7 @@ src/buzz_news/
   writer.py                # LLM article generation
   verifier.py              # entity verification EN + HI
   imager.py               # Unsplash / Pexels / Wikimedia
+  search.py               # hybrid Postgres FTS + pgvector search, cost-capped
   publisher.py            # write + render + Cloudflare purge
   rollups.py              # daily/weekly/monthly/yearly
   retention.py            # cleanup job
@@ -80,10 +81,12 @@ python -m buzz_news write-once          # LLM article generation
 python -m buzz_news publish-once        # EN+HI + image + verify + render + CF purge
 python -m buzz_news republish-today     # force rebuild today's static pages
 
+# Archive (replaces the old `rollup` / `backfill-rollups` cmds)
+python -m buzz_news today-archive                         # rebuild /{lang}/archive/today.html
+python -m buzz_news monthly-archive [--month YYYY-MM]     # rebuild /{lang}/archive/month/YYYY-MM.html (defaults to current IST month)
+
 # Maintenance
-python -m buzz_news rollup --period day|week|month|year --date YYYY-MM-DD
 python -m buzz_news retention-cleanup
-python -m buzz_news backfill-rollups --days 7
 python -m buzz_news split-cluster <id> --items <raw_item_ids>   # operator escape hatch
 
 # Long-running
@@ -135,8 +138,12 @@ pytest -q
 - **LLM writer chain**: DeepSeek (primary) → Gemini (1st fallback) → Anthropic Haiku (2nd fallback). DeepSeek uses OpenAI-compat at `https://api.deepseek.com/v1/chat/completions` via `httpx` — model ids are **lowercase** (`deepseek-v4-flash`, `deepseek-v4-pro`). Gemini is currently 429-ing on the project spend cap; ignore the warnings, the chain falls through.
 - **Hero image URL convention**: `imager.pick_image()` returns a web-relative URL like `/images/{cluster_id}/hero.webp` (NOT the on-disk absolute path). Caddy serves these from `STATIC_DIR`. Returning the disk path will silently render broken `<img src="/var/lib/...">` tags.
 - **Slug stability**: `publisher.publish_top_n` reuses `existing.slug` on republish instead of recomputing from `_slugify(draft.title_en, cluster.id)`. LLM rewords titles between runs, so recomputing the slug would orphan the previous HTML file at the old URL. Never call `_slugify()` for an article that already has a row in the DB. Slugs end in `cluster_id`, not `article_id` — easy to confuse when building URLs by hand.
-- **Mast macro takes a full per-language path suffix**, not just a page key. `mast(lang, 'article/' ~ article.slug, labels, date_str)` for article pages, `'archive/day/<date>'` for archives, `'home'` (special) for the front page. The macro emits `/en/<page>` and `/hi/<page>` so EN/HI links share the same suffix (slugs and archive dates are language-agnostic).
-- **Home archive tile** links to the most recent archive file that exists on disk (`publisher.render_home_pages` scans `<STATIC_DIR>/{lang}/archive/day/*.html`). It's hidden if no archive exists yet. Earlier versions linked to today's date, which 404'd all day because the daily rollup cron only fires at midnight IST producing the *previous* day's archive.
+- **Mast macro takes a full per-language path suffix**, not just a page key. `mast(lang, 'article/' ~ article.slug, labels, date_str)` for article pages, `'archive/today'` or `'archive/month/' ~ month_str` for the new archives, `'home'` (special) for the front page. The macro emits `/en/<page>` and `/hi/<page>` so EN/HI links share the same suffix (slugs and archive dates are language-agnostic). For pages outside the static path scheme (e.g. `/api/search?q=...&lang=...`), pass a `lang_switch={'en': url, 'hi': url}` kwarg — it overrides the auto-built `/{lang}/{page}` links.
+- **Home Daily Brief footer** links to `/{lang}/archive/today` and `/{lang}/archive/month/{current_YYYY_MM}` (IST). `month_str` is computed in `render_home_pages` from `_ist_day_window()` — do NOT re-introduce a disk-scan of `archive/day/*.html` (that was the old broken pattern for the deleted daily archive).
+- **Two-tier archive**: today (live, regenerated per publish cycle) + monthly (live, regenerated hourly). Weekly + yearly were dropped. Existing `archive/day/<date>.html` static files are left in place for SEO continuity but no new ones get written. See CLAUDE.md "Archive structure" for the full rules.
+- **Two distinct embedding columns**: `raw_items.embedding` is `ARRAY(DOUBLE_PRECISION)` (pre-existing, cosine computed Python-side in `clusterer.py`). `articles.embedding` is pgvector's native `vector(768)` (added in `0003_article_search.py`) — has an HNSW index and is queried via `<=>` operator in `search.py`. **Don't mix the two**; they need different bind-parameter handling. The `Vector` type via SQLAlchemy ORM round-trips correctly; for raw SQL pass the vector as text form `[v1,v2,...]` with `CAST(:qvec AS vector)`.
+- **Search cost cap**: `search.py` has 3 layers — (1) `search_query_cache` table makes each unique query embed exactly once forever (persistent across worker restarts); (2) daily budget guard counts rows added today, if `>= MAX_DAILY_EMBEDS (500)` it skips Gemini and runs FTS-only; (3) `/api/search` is rate-limited to 10/min in `web/app.py`. Steady-state cost ~$0.005/day; hard ceiling $0.075/day. If you increase the limit, recompute the ceiling.
+- **Embedder QUERY task type**: `embedder.embed_text(text, task_type="RETRIEVAL_QUERY")` for search queries, `"RETRIEVAL_DOCUMENT"` for articles. Both **must** use `output_dimensionality=768` or the vectors come back at different shapes (3072 vs 768) and don't compare. Fixed at `embedder.py:21` in phase 3 — don't re-introduce the conditional.
 - **Detached SQLAlchemy objects across sessions don't persist**: `publish_top_n` loads `existing` in one `async with async_session_factory() as session:` block, then mutates it in a different session block. Use an explicit `update(Article).where(...).values(...)` statement, NOT `setattr(existing, k, v)` — setattr on a detached object is a silent no-op.
 - **Inverted surfaces (2x2 lead, article header, active archive window) must use literal hex colors**, not `var(--paper)` / `var(--ink-2)`. The `--paper` token flips to a dark value under `prefers-color-scheme: dark`, which makes the inverted tile dark-on-dark. Use `#0E0B09` background + `#F4F0E8` text + `#1A1614` hover.
 - **Mosaic grid breakpoints (revised from spec)**: `<=480px → 2 cols`, `481-719px → 4 cols`, `>=720px → 6 cols`. All breakpoints use `minmax(<base>, auto)` rows so tiles grow if title needs the room. Design.md's "phone default 4 cols" produced unreadably-cramped tiles on real phones.

@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     RETENTION_CLUSTER_SCORES_DAYS: int = 30
     RETENTION_BUZZ_EVENTS_DAYS: int = 365
     RETENTION_IMAGES_DAYS: int = 365
+    RETENTION_SEARCH_CACHE_DAYS: int = 90
 
 
 @lru_cache

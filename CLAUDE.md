@@ -84,6 +84,16 @@ Concretely, you can develop and test all of Phases 0–7 with placeholder values
 - **Tile wrappers are transparent** — do NOT apply `.s-intl`, `.s-pol`, etc. (category background-color classes) to grid tile `<div>` wrappers. Per the mockup, tiles have `bg-transparent` with subtle borders. Category colors belong on **text labels only** (via `k-*` classes inside card macros). If you see `{{ cat_c(art.category) }}` on a tile wrapper, remove it.
 - **Homepage grid cycle is 14 positions** — article 0 is the lead (rendered separately in `home.html` with hardcoded classes). Articles 1+ use `_compute_tile_sizes` with `(rank - 1) % 14`. The old `rank % 15` produced a duplicate lead layout at article 15. Default limit is **15** (1 lead + 14 cards = one complete cycle) to avoid orphaned partial rows.
 
+## Archive structure (2026-05-26)
+
+Two tiers only — `today` and `monthly`. Weekly + yearly were dropped (never linked, confusing). Daily-per-date snapshots are no longer written; existing `archive/day/2026-05-24.html` is kept for SEO continuity.
+
+- **Today**: `/{lang}/archive/today.html`. Static file regenerated each `publish-once` cycle via `publisher.render_today_pages()`. IST day window (not UTC) so boundaries match the editorial calendar. **No `verifier_passed` filter** — verifier is over-strict (94% rejection on grammar / sentence-starters). The home page already drops the filter; the archive matches.
+- **Monthly**: `/{lang}/archive/month/YYYY-MM.html`. Static file regenerated **hourly** via `monthly_archive` interval job, and once more at 00:30 IST on the 1st of each month via `previous_month_finalize` cron. Sorted by `published_at DESC`, capped at `_MONTH_TOP_LIMIT=500`. IST calendar boundaries. Drops the old per-category overwrite bug — single "all" file per month.
+- **Search**: `/api/search?q=&lang=` is a live FastAPI route (10/min ratelimit). Returns a full HTML results page with `<meta name="robots" content="noindex">`. Hybrid: Postgres FTS (`ts_rank_cd` on `articles.search_vector`) + pgvector cosine (`embedding <=> qvec`), weighted 0.4 / 0.6. **Cost-capped** via `search_query_cache` (each unique query embeds exactly once forever) + daily budget guard (`MAX_DAILY_EMBEDS=500` ≈ $0.075/day; over budget → FTS-only). The search box on archive pages is a plain form GET (no JS).
+- **IST helpers** live in `publisher.py`: `_ist_day_window()` returns `(start_utc, end_utc, ist_date_str, ist_month_str)`; `_archive_windows(current, lang, labels, today_str, month_str)` builds the 2-window nav passed to `render_windows`. **Reuse these** instead of re-deriving IST math.
+- **CLI**: `python -m buzz_news today-archive` and `python -m buzz_news monthly-archive [--month YYYY-MM]`. The old `rollup` and `backfill-rollups` subcommands are gone.
+
 ## When you're unsure
 
 - About a library choice → re-read §1, then ask.

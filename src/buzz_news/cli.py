@@ -261,11 +261,12 @@ async def cmd_monthly_archive(args) -> int:
 
 async def cmd_retention_cleanup(args) -> int:
     from buzz_news.db import async_session_factory
-    from buzz_news.models import RawItem, ClusterScore, BuzzEvent
+    from buzz_news.models import RawItem, ClusterScore, BuzzEvent, SearchQueryCache
 
     cutoff_raw = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_RAW_ITEMS_DAYS)
     cutoff_scores = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_CLUSTER_SCORES_DAYS)
     cutoff_buzz = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_BUZZ_EVENTS_DAYS)
+    cutoff_search = datetime.now(timezone.utc) - timedelta(days=settings.RETENTION_SEARCH_CACHE_DAYS)
 
     async with async_session_factory() as session:
         result = await session.execute(
@@ -283,6 +284,11 @@ async def cmd_retention_cleanup(args) -> int:
         )
         buzz_deleted = result.rowcount
 
+        result = await session.execute(
+            sa.delete(SearchQueryCache).where(SearchQueryCache.created_at < cutoff_search)
+        )
+        search_cache_deleted = result.rowcount
+
         await session.commit()
 
     images_dir = Path(settings.STATIC_DIR) / "images"
@@ -295,7 +301,11 @@ async def cmd_retention_cleanup(args) -> int:
                 shutil.rmtree(item_dir)
                 images_deleted += 1
 
-    log.info(f"Retention cleanup: {raw_deleted} raw_items, {scores_deleted} cluster_scores, {buzz_deleted} buzz_events, {images_deleted} image dirs deleted")
+    log.info(
+        f"Retention cleanup: {raw_deleted} raw_items, {scores_deleted} cluster_scores, "
+        f"{buzz_deleted} buzz_events, {search_cache_deleted} search_query_cache, "
+        f"{images_deleted} image dirs deleted"
+    )
     return 0
 
 

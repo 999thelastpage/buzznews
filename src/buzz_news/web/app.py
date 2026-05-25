@@ -99,18 +99,24 @@ async def search(request: Request, q: str = "", lang: str = "en"):
     labels = get_labels(lang)
     _, _, today_str, month_str = _ist_day_window()
     windows = _archive_windows("search", lang, labels, today_str, month_str)
-    page_key = f"search?q={query}&lang={lang}"
+    from urllib.parse import quote
+    qenc = quote(query, safe="")
+    lang_switch = {
+        "en": f"/api/search?q={qenc}&lang=en",
+        "hi": f"/api/search?q={qenc}&lang=hi",
+    }
 
     html = tpl.render(
         lang=lang,
         period="search",
-        page_key=page_key,
+        page_key="archive/today",  # used by mast only as a fallback; lang_switch overrides
         date_str=today_str,
         articles=results,
         windows=windows,
         total_count=len(results),
         labels=labels,
         search_query=query,
+        lang_switch=lang_switch,
         title=f"{labels.get('search', 'Search')}: {query}",
     )
     return HTMLResponse(content=html)
