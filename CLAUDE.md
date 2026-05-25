@@ -45,7 +45,6 @@ Already installed at `~/.openclaw/workspace/skills/` and `~/.openclaw/plugin-ski
 
 - `openclaw-tavily-search` — web-search source (used as a `kind: tavily` adapter)
 - `agent-browser-clawdbot` + `browser-automation` — Chrome fallback for JS-heavy page extraction (env-gated, **off by default**)
-- `tencent-cos-skill` — backups to Tencent COS (replaces rclone+B2)
 - `github`, `tencentcloud-lighthouse-skill`, etc. — available but not in BuzzNews scope
 
 BuzzNews adds its own skills under the same directory (see Phase 8). Custom skill names are prefixed `buzznews_*`.
@@ -54,7 +53,7 @@ BuzzNews adds its own skills under the same directory (see Phase 8). Custom skil
 
 Several `.env` values are intentionally `TODO_PRE_LAUNCH` / `TODO_BEFORE_PHASE_1`. See plan §13 for the checklist. **Build and locally test against placeholders; do not block on real keys.** The `preflight` CLI command validates the `.env` at startup — critical missing values abort, non-critical ones warn.
 
-Concretely, you can develop and test all of Phases 0–7 with placeholder values. Phase 8 (Telegram delivery) and Phase 9 (COS backups) are the only ones that need real keys to pass acceptance.
+Concretely, you can develop and test all of Phases 0–7 with placeholder values. Phase 8 (Telegram delivery) is the only one that needs real keys to pass acceptance. (Phase 9 used to call for Tencent COS automated backups; that's been dropped — Anjali handles DB backups manually.)
 
 ## Conventions
 

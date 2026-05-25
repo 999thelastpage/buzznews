@@ -56,7 +56,6 @@ tests/                    # pytest + pytest-asyncio + respx
 deploy/
   Caddyfile
   systemd/                # buzz-news-worker.service, buzz-news-web.service (NO openclaw.service)
-  backup.sh
   openclaw-skills/        # synced to ~/.openclaw/workspace/skills/
 scripts/
   seed_sources.py
@@ -112,7 +111,6 @@ pytest -q
 
 - **Tavily search**: calls OpenClaw skill `openclaw-tavily-search` via HTTP POST to `http://127.0.0.1:18789/skills/openclaw-tavily-search/search`.
 - **Browser extraction**: POST to `http://127.0.0.1:18789/skills/agent-browser-clawdbot/extract` (env-gated, off by default).
-- **COS backups**: POST to `http://127.0.0.1:18789/skills/tencent-cos-skill/upload`.
 - **Buzz delivery**: `BUZZ_WEBHOOK_URL` → OpenClaw gateway webhook.
 - All bridge traffic is **localhost only, no auth**.
 
@@ -127,7 +125,7 @@ pytest -q
 ## Pre-launch placeholders
 
 - Phases 0–7: build and test with `TODO_PRE_LAUNCH` / `TODO_BEFORE_PHASE_1` values in `.env`.
-- Phase 8 (Telegram) and Phase 9 (COS backups): need real keys.
+- Phase 8 (Telegram) needs real keys. (Phase 9 COS backups was dropped — Anjali backs up manually.)
 - `python -m buzz_news preflight` validates `.env` at startup — critical missing values abort, non-critical ones warn.
 
 ## Architecture quirks

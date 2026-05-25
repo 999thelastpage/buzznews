@@ -20,11 +20,11 @@
 - **Goal**: A trending-news site that pulls from many sources, clusters items about the same event, scores them for genuine importance (not virality), synthesizes a short editorial summary per cluster using an LLM, and serves a fast static-rendered site in English and Hindi. Daily / weekly / monthly / yearly rollups are also generated.
 - **Host**: Single Tencent Cloud Lighthouse VPS, Ubuntu 24.04 LTS, **1.9 GB RAM, 2 vCPU @ 2.0 GHz, 40 GB disk, 10 GB swap** (verify with `free -h` and `df -h` before starting). OpenClaw is already installed and resident; treat its memory footprint (~500 MB idle node + on-demand Chrome) as a fixed tenant.
 - **Target traffic**: ~100 visitors/day in 6 months. No monetization until ~10k users.
-- **Budget for external services**: USD 15–20/month total (LLM API + embeddings + backups + Tavily). No paid image generation.
+- **Budget for external services**: USD 15–20/month total (LLM API + embeddings + Tavily). No paid image generation.
 - **Locales**: English and Hindi only.
 - **Legal posture**: We *synthesize* from multiple sources and *link out*. We do not host any image we did not obtain a permissive license for. We follow Indian DPDP Act for any visitor tracking.
 - **Developer profile**: 10+ years experience. Comfortable with Linux, Postgres, Python, systemd, Docker. No hand-holding needed for basics.
-- **Co-tenant**: OpenClaw (`~/.openclaw/`) is a hard dependency, not an optional add-on. BuzzNews delegates four jobs to it: web search (Tavily), JS-heavy page extraction (browser), Tencent COS backups, and the ops chat bot. The Phase 8 work is configuration, not installation.
+- **Co-tenant**: OpenClaw (`~/.openclaw/`) is a hard dependency, not an optional add-on. BuzzNews delegates three jobs to it: web search (Tavily), JS-heavy page extraction (browser), and the ops chat bot. The Phase 8 work is configuration, not installation.
 
 ---
 
@@ -52,7 +52,7 @@
 | LLM | Google Gemini 2.0 Flash via `google-genai` | Primary. Anthropic Claude Haiku via `anthropic` as fallback. |
 | Image sources | Unsplash, Pexels, Wikimedia Commons APIs | All free with attribution |
 | Ops bot | **Existing** OpenClaw install at `~/.openclaw/` | Already running. We add workspace skills under `~/.openclaw/workspace/skills/`. No separate systemd unit. |
-| Backups | OpenClaw `tencent-cos-skill` → Tencent COS bucket | Same data center as the VPS. No rclone, no B2. |
+| Backups | Manual — handled by the developer outside the app | Originally planned as OpenClaw `tencent-cos-skill` → COS; dropped 2026-05-25. |
 | Testing | `pytest` + `pytest-asyncio` | |
 | Lint / format | `ruff` | Single config |
 | Migrations | `alembic` | |
@@ -75,7 +75,7 @@
 Run these as root once. Skip steps that are already done. **Verify free RAM with `free -h` first — if less than 700 MB is available, stop and investigate OpenClaw/Chrome footprint before installing Postgres.**
 
 ```bash
-# Base — note: no rclone (we use Tencent COS via OpenClaw), no compile-heavy ML libs
+# Base — note: no compile-heavy ML libs (backups handled manually by the developer)
 apt-get update && apt-get -y upgrade
 apt-get -y install build-essential git curl ufw \
   python3.12 python3.12-venv python3.12-dev \
@@ -214,14 +214,12 @@ The two CHANGE_ME passwords must be set by the developer and stored in `.env`. D
 │   ├── systemd/
 │   │   ├── buzz-news-worker.service
 │   │   └── buzz-news-web.service     # no openclaw.service — already externally supervised
-│   ├── backup.sh
 │   └── openclaw-skills/              # synced to ~/.openclaw/workspace/skills/
 │       ├── buzznews_status/SKILL.md
 │       ├── buzznews_recent_buzz/SKILL.md
 │       ├── buzznews_pause_source/SKILL.md
 │       ├── buzznews_restart_worker/SKILL.md
-│       ├── buzznews_split_cluster/SKILL.md
-│       └── buzznews_backup_now/SKILL.md
+│       └── buzznews_split_cluster/SKILL.md
 └── scripts/
     ├── seed_sources.py
     └── manual_fetch_once.py
@@ -372,7 +370,6 @@ CREATE INDEX buzz_events_fired_idx ON buzz_events (fired_at DESC);
 | `clusters` with no `raw_items` (orphaned by retention) | Delete | Cleaned in the same job. |
 | `static/images/<article_id>/` | While the article is referenced in any rollup OR `published_at > now - 365 days` | Avoid orphaned images. |
 | `/var/log/buzz-news/*.log` | RotatingFileHandler 10 MB × 5 | Python logging handles it. |
-| Backups in COS | 30 days hot, 90 days cold (lifecycle rule on the bucket) | See §9. |
 
 All retention deletes use small batches (1000 rows) and run during off-peak (04:30 IST).
 
@@ -639,12 +636,6 @@ CLOUDFLARE_ZONE_ID=TODO_PRE_LAUNCH
 CLOUDFLARE_API_TOKEN=TODO_PRE_LAUNCH    # token with "Zone.Cache Purge" permission only
 CLOUDFLARE_PURGE_ENABLED=false
 
-# Tencent COS (for backups; used by the OpenClaw tencent-cos-skill)
-# Configured during pre-launch — see §13.
-TENCENT_COS_BUCKET=TODO_PRE_LAUNCH
-TENCENT_COS_REGION=TODO_PRE_LAUNCH
-# Credentials live in OpenClaw's skill config, not here.
-
 # Site (configured pre-launch)
 SITE_BASE_URL=https://TODO_PRE_LAUNCH
 SITE_HOST=TODO_PRE_LAUNCH
@@ -694,7 +685,6 @@ The `run-worker` process owns all of these. **Jobstore: `SQLAlchemyJobStore` aga
 | `rollup_weekly` | cron | Mon 01:00 IST | `rollups.build_weekly(prev_week)` | |
 | `rollup_monthly` | cron | 1st 02:00 IST | `rollups.build_monthly(prev_month)` | |
 | `rollup_yearly` | cron | Jan 1 03:00 IST | `rollups.build_yearly(prev_year)` | |
-| `backup` | cron | 03:30 IST daily | shells out to `deploy/backup.sh` | Healthcheck ping on success |
 | `retention_cleanup` | cron | 04:30 IST daily | `retention.cleanup_all` | Honors `RETENTION_*_DAYS` env |
 | `llm_usage_rollup` | cron | 23:55 IST daily | `writer.aggregate_daily_usage` | Sends warning to buzz webhook if > $0.40 |
 
@@ -995,7 +985,7 @@ Misfire policy: if the worker is down when a job should fire, on restart APSched
 
 ### Phase 8 — OpenClaw integration + buzz delivery
 
-**Goal**: Operate the system from Telegram or Discord. Receive buzz alerts the same way. Reuse OpenClaw for browser-based extraction, Tavily web search, and COS backups.
+**Goal**: Operate the system from Telegram or Discord. Receive buzz alerts the same way. Reuse OpenClaw for browser-based extraction and Tavily web search.
 
 **OpenClaw is already running** at `~/.openclaw/` as root. We do **not** install it, supervise it, or move it to the `buzz` user — that risks breaking the existing setup. No `deploy/systemd/openclaw.service` is shipped.
 
@@ -1010,7 +1000,6 @@ Misfire policy: if the worker is down when a job should fire, on restart APSched
    - `buzznews_pause_source/SKILL.md` — sets `sources.enabled=false` for a given slug via the read-only role plus a narrowly-scoped writable function (`pause_source(slug)`) granted to `buzz_ro`. **Do not** give `buzz_ro` broader write access.
    - `buzznews_restart_worker/SKILL.md` — runs `sudo systemctl restart buzz-news-worker` (sudoers entry on the `buzz` user limited to that one command; the skill is invoked from a process that can `sudo -u buzz`).
    - `buzznews_split_cluster/SKILL.md` — operator escape hatch for Gotcha #12: takes a cluster ID and a list of `raw_item` IDs, calls `python -m buzz_news split-cluster <id> --items <comma,list>`.
-   - `buzznews_backup_now/SKILL.md` — invokes the on-demand backup flow (pg_dump → COS upload via `tencent-cos-skill`).
 3. **IPC pattern between BuzzNews ↔ OpenClaw**: BuzzNews calls OpenClaw's gateway over plain HTTP on `127.0.0.1:18789` (no auth needed for localhost). Reverse direction — OpenClaw → BuzzNews — uses `localhost:8000/api/*` endpoints. Both bind to localhost only; nothing on this bridge is exposed externally.
 4. Connect OpenClaw to **Telegram** via a bot token (developer's choice — confirmed). Discord can be added later as a second channel. Pair only the developer's own Telegram account; `dmPolicy: "pairing"`.
 5. Buzz delivery: set `BUZZ_WEBHOOK_URL` to OpenClaw's gateway webhook, formatted such that OpenClaw posts a structured message: `🚨 {headline_guess} — score {composite}, picked up by {distinct_authoritative} authoritative sources in {category}/{region}`. The webhook payload schema in §7 (Phase 3) is unchanged; the formatting happens inside OpenClaw.
@@ -1023,53 +1012,30 @@ Misfire policy: if the worker is down when a job should fire, on restart APSched
 
 ---
 
-### Phase 9 — Backups + hardening
+### Phase 9 — Hardening
 
-**Goal**: Production-ready operations.
+**Goal**: Production-ready operations. (Automated backups were originally part of this phase via Tencent COS + OpenClaw `tencent-cos-skill`; that was dropped 2026-05-25 because the developer handles DB backups manually.)
 
 **Tasks**:
-1. `deploy/backup.sh` (called by the APScheduler `backup` job, not by system cron — so that retention/log handling stays inside the worker):
-   ```bash
-   #!/bin/bash
-   set -euo pipefail
-   STAMP=$(date -u +%Y%m%d-%H%M%S)
-   DEST=/var/backups/buzz-news
-   mkdir -p $DEST
-   sudo -u postgres pg_dump --format=custom buzz_news \
-       > $DEST/db-$STAMP.pgcustom
-   tar -C /var/lib/buzz-news -czf $DEST/images-$STAMP.tgz static/images
-   # Upload via OpenClaw's tencent-cos-skill
-   curl -fsS -X POST "$OPENCLAW_GATEWAY_URL/skills/tencent-cos-skill/upload" \
-       -H "Content-Type: application/json" \
-       -d "{\"local_path\": \"$DEST/db-$STAMP.pgcustom\", \"bucket\": \"$TENCENT_COS_BUCKET\", \"key\": \"db/$STAMP.pgcustom\"}"
-   curl -fsS -X POST "$OPENCLAW_GATEWAY_URL/skills/tencent-cos-skill/upload" \
-       -H "Content-Type: application/json" \
-       -d "{\"local_path\": \"$DEST/images-$STAMP.tgz\", \"bucket\": \"$TENCENT_COS_BUCKET\", \"key\": \"images/$STAMP.tgz\"}"
-   find $DEST -type f -mtime +7 -delete   # local copy: 7 days
-   ```
-   - The COS bucket itself has a lifecycle rule (30 days hot → 90 days cold → delete). Configure once via the Tencent console.
-2. Schedule: APScheduler job `backup` at 03:30 IST (see §7.0 table). Healthcheck ping at the end (e.g. healthchecks.io free tier) so silent failures get noticed.
-3. Privacy + compliance:
+1. Privacy + compliance:
    - Add `/privacy` static page mentioning DPDP Act compliance, what data is collected (none beyond Cloudflare's standard logs), and how to contact for removal.
    - Add a small cookie banner only if/when client-side analytics is added — for now, no analytics, no banner needed.
-4. `robots.txt` and `sitemap.xml`:
+2. `robots.txt` and `sitemap.xml`:
    - `robots.txt` allows everything but `/api/`.
    - `sitemap.xml` regenerated by the `rollup_daily` job (right after it finishes — same data dependency), listing every published article URL plus rollup pages.
-5. Web hardening:
+3. Web hardening:
    - Rate limit `/api/*` to 60 req/min per IP via FastAPI middleware (`slowapi`). Cloudflare's free WAF is the second layer. (The original "Caddy rate_limit plugin" path is dropped — not in default Caddy build.)
    - HSTS, CSP, X-Content-Type-Options, Referrer-Policy set in the Caddyfile (see Phase 6).
-6. Secrets:
+4. Secrets:
    - `.env` is `chmod 600` owned by `buzz` (already set up in §2).
    - `CLOUDFLARE_API_TOKEN` is scoped to `Zone.Cache Purge` only.
    - OpenClaw's `~/.openclaw/openclaw.json` keys are out of scope of this repo.
-7. Logging:
+5. Logging:
    - Every Python service logs to `/var/log/buzz-news/<service>.log` via Python's logging module (RotatingFileHandler, 10 MB × 5).
    - `journalctl -u buzz-news-worker` for systemd-level events.
-8. **Retention enforcement** — the `retention-cleanup` APScheduler job applies the policy in §4 (raw_items, cluster_scores, buzz_events, images). Runs daily 04:30 IST. Batches of 1000 rows. Single-line summary log at the end.
+6. **Retention enforcement** — the `retention-cleanup` APScheduler job applies the policy in §4 (raw_items, cluster_scores, buzz_events, images). Runs daily 04:30 IST. Batches of 1000 rows. Single-line summary log at the end.
 
 **Acceptance**:
-- `bash deploy/backup.sh` produces a backup, uploads to COS via OpenClaw, and verifies the COS object size > 0.
-- Restoring from the most recent backup into a fresh empty DB succeeds (test in a throwaway env — e.g. a second database on the same VPS).
 - `curl -I https://<host>/` includes HSTS, CSP, X-Content-Type-Options, Referrer-Policy.
 - A burst of 100 requests in 10 s to `/api/` (any public endpoint) from one IP gets rate-limited (429).
 - `retention-cleanup` deletes the expected rows in a dry-run test where we pre-populate 95-day-old `raw_items`.
@@ -1352,9 +1318,6 @@ sudo -u buzz /opt/buzz-news/.venv/bin/python -m buzz_news split-cluster 12345 --
 # Force rebuild static pages for everything published today
 sudo -u buzz /opt/buzz-news/.venv/bin/python -m buzz_news republish-today
 
-# Backup on demand (also available via OpenClaw skill: buzznews_backup_now)
-bash /opt/buzz-news/deploy/backup.sh
-
 # Retention cleanup on demand
 sudo -u buzz /opt/buzz-news/.venv/bin/python -m buzz_news retention-cleanup
 
@@ -1383,7 +1346,7 @@ curl -fsS http://127.0.0.1:18789/health
 11. **OpenClaw security**: never set `dmPolicy="open"`. The gateway listens on localhost only; do not bind it to a public IP. The BuzzNews ↔ OpenClaw bridge is unauthenticated because both ends are loopback-only.
 12. **Cluster splits**: occasionally two distinct events get glued together when one mentions the other. The `split-cluster` CLI and matching OpenClaw skill exist as an operator escape hatch — Phase 2 does not solve splits automatically.
 13. **Time zones**: store every timestamp as UTC in the DB. Convert to `Asia/Kolkata` only in templates and rollup boundaries.
-14. **OpenClaw is a tenant, not a child process**: BuzzNews does not start, stop, or restart OpenClaw. If OpenClaw needs to restart, that happens out-of-band; BuzzNews features that depend on it (Tavily, browser, COS, buzz delivery) degrade gracefully and log.
+14. **OpenClaw is a tenant, not a child process**: BuzzNews does not start, stop, or restart OpenClaw. If OpenClaw needs to restart, that happens out-of-band; BuzzNews features that depend on it (Tavily, browser, buzz delivery) degrade gracefully and log.
 15. **Tavily quota**: free tier is 1000 searches/month. The two seeded sources at 90-min cadence consume ~960/mo — within budget but close. The `llm_usage_rollup` job warns if daily Tavily fetches exceed 35. If we ever upgrade to a paid plan, also bump `cadence_minutes` down in `catalog.yaml`.
 16. **APScheduler job persistence**: if you change a job's trigger in code, APScheduler does **not** automatically reconcile against the SQLAlchemyJobStore. The worker startup code must explicitly call `add_job(..., replace_existing=True)` for every job. Otherwise old triggers persist forever.
 17. **Cloudflare cache purge token scope**: the API token must have `Zone.Cache Purge` permission only. A broader token in `.env` is a much bigger blast radius if compromised.
@@ -1416,8 +1379,6 @@ Each of these needs a one-time action before going live. Group them into a singl
 | 1b | **Cloudflare zone** | Create zone, point DNS, orange-cloud. Get `CLOUDFLARE_ZONE_ID`. | Phase 6 deploy. |
 | 1c | **Cloudflare API token** | Create token with `Zone.Cache Purge` only. Set `CLOUDFLARE_API_TOKEN`, flip `CLOUDFLARE_PURGE_ENABLED=true`. | Phase 5 cache purge (graceful degrade if missing). |
 | 2 | **Contact email** | Pick one address. Substitute in: Reddit UA, privacy page, OpenClaw pairing notice. | Phase 1 (Reddit adapter only — fetcher works with the placeholder UA, Reddit may downrank it). |
-| 4a | **Tencent COS bucket** | Create bucket. Configure lifecycle rule: 30d hot → 90d cold → delete. Set `TENCENT_COS_BUCKET`, `TENCENT_COS_REGION`. | Phase 9 backups (graceful degrade if missing). |
-| 4b | **OpenClaw `tencent-cos-skill` auth** | Confirm OpenClaw already has Tencent credentials configured; if not, populate. | Phase 9 backups. |
 | 5 | **Tavily API key** | Sign up at tavily.com (free, 1000/mo). Set `TAVILY_API_KEY`. Confirm OpenClaw's `openclaw-tavily-search` skill is using the same key OR adjust. | Phase 1 Tavily adapter (graceful degrade — other adapters still work). |
 | 11 | **Telegram bot** | Create via @BotFather. Get bot token. Configure in OpenClaw `~/.openclaw/openclaw.json`. Set `BUZZ_WEBHOOK_URL` to point at OpenClaw's gateway. | Phase 8 buzz delivery. |
 | 12 | **OpenClaw ↔ buzz user bridge** | As `buzz` user: `curl -fsS http://127.0.0.1:18789/health`. Should return 200. If not, investigate (likely OpenClaw bound to a different address or firewall rule). | Phase 1 Tavily adapter + Phase 8. |
@@ -1430,13 +1391,12 @@ sudo -u buzz bash -c '
   test "$SITE_HOST" != "TODO_PRE_LAUNCH" || (echo "SITE_HOST not set"; exit 1)
   test -n "$TAVILY_API_KEY" -a "$TAVILY_API_KEY" != "TODO_BEFORE_PHASE_1" || (echo "TAVILY_API_KEY missing"; exit 1)
   test "$CLOUDFLARE_ZONE_ID" != "TODO_PRE_LAUNCH" || (echo "CLOUDFLARE_ZONE_ID not set"; exit 1)
-  test "$TENCENT_COS_BUCKET" != "TODO_PRE_LAUNCH" || (echo "TENCENT_COS_BUCKET not set"; exit 1)
   curl -fsS http://127.0.0.1:18789/health > /dev/null || (echo "OpenClaw gateway unreachable"; exit 1)
   echo "Pre-launch config OK"
 '
 ```
 
-This check is also a CLI command: `python -m buzz_news preflight`. It runs automatically at `run-worker` and `run-web` startup and exits non-zero on missing critical config (`SITE_HOST`, `GEMINI_API_KEY`, `DATABASE_URL`). Non-critical missing items (`CLOUDFLARE_*`, `TENCENT_COS_*`) log a warning but do not abort.
+This check is also a CLI command: `python -m buzz_news preflight`. It runs automatically at `run-worker` and `run-web` startup and exits non-zero on missing critical config (`SITE_HOST`, `GEMINI_API_KEY`, `DATABASE_URL`). Non-critical missing items (`CLOUDFLARE_*`) log a warning but do not abort.
 
 ---
 

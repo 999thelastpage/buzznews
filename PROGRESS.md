@@ -1,3 +1,18 @@
+## Scope change — COS backups dropped (2026-05-25)
+
+Done:
+  - Tencent COS automated backups removed from the plan. Anjali handles DB backups manually outside the app.
+  - Deleted `deploy/backup.sh`, `deploy/openclaw-skills/buzznews_backup_now/`, and the deployed skill at `~/.openclaw/workspace/skills/buzznews_backup_now`.
+  - Stripped `TENCENT_COS_BUCKET`/`TENCENT_COS_REGION` from `src/buzz_news/config.py`, `.env.example`, and the `preflight` warning in `cli.py`.
+  - Edited `PROJECT_PLAN.md` (§1 stack table, §1 budget, §1 co-tenant note, §2 apt-install comment, §3 file tree, §4 retention table, §6 .env block, §7.0 scheduler table, §9 Phase 9 rewritten as "Hardening" — no backups, §11 ops cheatsheet, §12 gotcha #14, §13 pre-launch checklist rows 4a/4b and preflight script).
+  - Edited `CLAUDE.md` (dropped `tencent-cos-skill` from the OpenClaw skill list; updated pre-launch placeholder section) and `AGENTS.md` (dropped `backup.sh` from tree, dropped the COS backups IPC line, updated pre-launch section).
+
+Notes for review:
+  - The `tencent-cos-skill` itself still exists under `~/.openclaw/workspace/skills/` — only BuzzNews's wrapper skill is gone. Other OpenClaw tenants can keep using it.
+  - PROGRESS.md's historical Phase 9 entry (2026-05-24) is left intact for the record; the rewrite only changed the forward-looking plan docs.
+
+---
+
 ## Phase 0 — Bootstrap (2026-05-24)
 
 Done:

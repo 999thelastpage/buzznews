@@ -134,8 +134,6 @@ async def cmd_preflight(args) -> int:
         warnings.append("SITE_HOST is not set (pre-launch)")
     if s.CLOUDFLARE_ZONE_ID == "TODO_PRE_LAUNCH":
         warnings.append("CLOUDFLARE_ZONE_ID not set (pre-launch)")
-    if s.TENCENT_COS_BUCKET == "TODO_PRE_LAUNCH":
-        warnings.append("TENCENT_COS_BUCKET not set (pre-launch)")
     if s.TAVILY_API_KEY == "TODO_BEFORE_PHASE_1":
         warnings.append("TAVILY_API_KEY not set (Tavily source will be skipped)")
 

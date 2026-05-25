@@ -37,9 +37,6 @@ class Settings(BaseSettings):
     CLOUDFLARE_API_TOKEN: str = "TODO_PRE_LAUNCH"
     CLOUDFLARE_PURGE_ENABLED: bool = False
 
-    TENCENT_COS_BUCKET: str = "TODO_PRE_LAUNCH"
-    TENCENT_COS_REGION: str = "TODO_PRE_LAUNCH"
-
     SITE_BASE_URL: str = "https://TODO_PRE_LAUNCH"
     SITE_HOST: str = "TODO_PRE_LAUNCH"
     STATIC_DIR: str = "/var/lib/buzz-news/static"
