@@ -51,10 +51,17 @@ async def _search_unsplash(keywords: list[str]) -> tuple[str | None, str | None]
             results = data.get("results", [])
             for item in results:
                 urls = item.get("urls", {})
-                thumb = urls.get("thumb") or urls.get("small") or urls.get("regular")
+                # `raw` is the original; append CDN params to cap at 1600px wide
+                # for our 1200px hero target. `full` (~2048px) and `regular`
+                # (1080px) are fallbacks. Never use `small`/`thumb` (200px).
+                raw = urls.get("raw")
+                if raw:
+                    image_url = f"{raw}&w=1600&fit=max&q=85" if "?" in raw else f"{raw}?w=1600&fit=max&q=85"
+                else:
+                    image_url = urls.get("full") or urls.get("regular")
                 credit = f"Photo by {item.get('user', {}).get('name', 'Unsplash')}"
-                if thumb:
-                    return thumb, credit
+                if image_url:
+                    return image_url, credit
     except Exception as e:
         log.warning(f"Unsplash search failed: {e}")
     return None, None
@@ -77,32 +84,49 @@ async def _search_pexels(keywords: list[str]) -> tuple[str | None, str | None]:
             photos = data.get("photos", [])
             for item in photos:
                 src = item.get("src", {})
-                thumb = src.get("large") or src.get("medium") or src.get("original")
+                # `large2x` is 1880px wide; `original` is the source upload.
+                # Avoid `large` (940px) and `medium` (350px) — too small for hero.
+                image_url = src.get("large2x") or src.get("original")
                 credit = f"Photo by {item.get('photographer', 'Pexels')}"
-                if thumb:
-                    return thumb, credit
+                if image_url:
+                    return image_url, credit
     except Exception as e:
         log.warning(f"Pexels search failed: {e}")
     return None, None
 
 
 async def _search_wikimedia(keywords: list[str]) -> tuple[str | None, str | None]:
-    query = "_".join(keywords[:3])
+    """Search Wikipedia for an article matching keywords and return its lead
+    image. Uses `generator=search` + `prop=pageimages` to get the actual image
+    URL in a single round-trip. Returns (image_url, credit) or (None, None)."""
+    query = " ".join(keywords[:3])
     url = (
-        f"https://en.wikipedia.org/w/api.php"
-        f"?action=query&list=search&srsearch={query}&format=json&srlimit=5"
+        "https://en.wikipedia.org/w/api.php"
+        "?action=query"
+        f"&generator=search&gsrsearch={query}&gsrlimit=5"
+        "&prop=pageimages&piprop=original"
+        "&format=json"
     )
+    headers = {
+        # Wikipedia API requires a descriptive User-Agent per their policy;
+        # bare httpx defaults get 403'd.
+        "User-Agent": "BuzzNewsBot/1.0 (https://slow.myvnc.com; contact via repo)",
+    }
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers) as client:
             resp = await client.get(url)
             if resp.status_code != 200:
                 return None, None
             data = resp.json()
-            pages = data.get("query", {}).get("search", [])
-            for page in pages:
+            pages = data.get("query", {}).get("pages", {}) or {}
+            # Pages come back as a dict keyed by page id; order by gsrindex.
+            ordered = sorted(pages.values(), key=lambda p: p.get("index", 999))
+            for page in ordered:
+                original = page.get("original") or {}
+                src = original.get("source")
                 title = page.get("title", "")
-                img_url = f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
-                return img_url, f"Wikimedia Commons / {title}"
+                if src:
+                    return src, f"Wikimedia Commons / {title}"
     except Exception as e:
         log.warning(f"Wikimedia search failed: {e}")
     return None, None
@@ -111,9 +135,17 @@ async def _search_wikimedia(keywords: list[str]) -> tuple[str | None, str | None
 def _download_and_resize(image_url: str, sizes: list[tuple[int, int]], out_dir: Path) -> dict[str, str]:
     paths = {}
     try:
-        resp = httpx.get(image_url, timeout=15.0, follow_redirects=True)
+        resp = httpx.get(image_url, timeout=30.0, follow_redirects=True)
         resp.raise_for_status()
         original = Image.open(BytesIO(resp.content)).convert("RGB")
+        # Reject sources too small to make a sharp hero. PIL.thumbnail() only
+        # shrinks, so a 200x133 source stays 200x133 and renders blurry when
+        # the browser stretches it into a 16:9 box.
+        if original.width < 800:
+            log.warning(
+                f"Image source too small ({original.width}x{original.height}) for {image_url}; skipping"
+            )
+            return paths
         for name, size in [("hero", HERO_SIZE), ("card", CARD_SIZE), ("thumb", THUMB_SIZE)]:
             resized = original.copy()
             resized.thumbnail(size, Image.LANCZOS)
