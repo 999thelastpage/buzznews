@@ -11,3 +11,10 @@ build/
 .ruff_cache/
 *.egg
 .claude/
+
+# Local-only docs. Canonical spec, per-phase build log, and design notes
+# live on the VPS and are not pushed. Only CLAUDE.md, AGENTS.md, README.md
+# are tracked.
+PROJECT_PLAN.md
+PROGRESS.md
+Design.md

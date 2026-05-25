@@ -30,16 +30,13 @@ Hard constraints, by design: no local ML models, no Docker on the VPS, no Node i
 ## Layout
 
 ```
-src/buzz_news/      app code (ingest, cluster, write, publish, web)
-alembic/            schema migrations
-deploy/             systemd units, Caddyfile
-scripts/            one-shot ops scripts
-tests/              pytest + respx
-PROJECT_PLAN.md     canonical spec (~1450 lines)
-CLAUDE.md          working agreement for AI contributors
-AGENTS.md          OpenClaw skill inventory and BuzzNews-specific skills
-PROGRESS.md        per-phase progress log
-Design.md          UI / visual design notes
+src/buzz_news/   app code (ingest, cluster, write, publish, web)
+alembic/         schema migrations
+deploy/          systemd units, Caddyfile
+scripts/         one-shot ops scripts
+tests/           pytest + respx
+CLAUDE.md        working agreement for AI contributors
+AGENTS.md        OpenClaw skill inventory and BuzzNews-specific skills
 ```
 
 ## Running locally
@@ -68,7 +65,7 @@ Two systemd units: `buzz-news-web` (uvicorn on `127.0.0.1:8000`) and `buzz-news-
 
 ## Docs
 
-The full design, phased build plan, algorithms, and prompts live in `PROJECT_PLAN.md`. `CLAUDE.md` is the working agreement for AI contributors (rules, host facts, conventions). `PROGRESS.md` is the running log of what's been built and what's pending.
+`CLAUDE.md` is the working agreement for AI contributors — rules, host facts, conventions. `AGENTS.md` lists the OpenClaw skills BuzzNews depends on. The canonical phased build plan, per-phase progress log, and visual design notes are kept VPS-local and are not pushed.
 
 ## License
 
