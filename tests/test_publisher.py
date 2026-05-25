@@ -57,7 +57,8 @@ def test_render_home_produces_tiles():
         archive_str="2026-05-24",
     )
     assert "<!doctype html" in html.lower()
-    assert "tile--2x2" in html
-    assert "tile--2x1" in html
+    assert "col-12" in html
+    assert "card-huge" in html
+    assert "col-3" in html
     assert "Alpha headline" in html
     assert "Reuters" in html

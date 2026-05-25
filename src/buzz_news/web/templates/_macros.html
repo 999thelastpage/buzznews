@@ -4,13 +4,40 @@
    'archive/day/2026-05-24'). Slugs and archive paths are language-agnostic,
    so the EN/HI links share the same suffix and differ only in /en/ vs /hi/.
 #}
-{% macro mast(lang, page, labels, date_str) -%}
+{% macro mast(lang, page, labels, date_str, articles=None) -%}
 <header class="mast">
-  {% if page == 'home' %}
-  <h1 class="mast__brand">Buzz<em>news</em><span class="dot" aria-hidden="true"></span></h1>
-  {% else %}
-  <a href="/{{ lang }}/" class="mast__brand">Buzz<em>news</em></a>
+  <a href="/{{ lang }}/" class="mast__brand">
+    {% if page == 'home' %}
+    <h1 style="display: inline; font-size: inherit; font-family: inherit; font-weight: inherit; font-style: inherit;">Buzz<em>news</em><span class="dot" aria-hidden="true"></span></h1>
+    {% else %}
+    Buzz<em>news</em>
+    {% endif %}
+  </a>
+
+  {% if articles %}
+  <div class="headline-bar" aria-label="{{ labels.trending_now }}">
+    <div class="headline-bar__label">{{ labels.trending_now or 'Trending Now' }}</div>
+    <div class="headline-bar__content">
+      {% for art in articles[:10] %}
+        {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+        <a href="/{{ lang }}/article/{{ art.slug }}" class="headline-bar__item {% if loop.first %}is-active{% endif %}" id="ticker-item-{{ loop.index0 }}">{{ title }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const items = document.querySelectorAll(".headline-bar__item");
+      if (items.length <= 1) return;
+      let cur = 0;
+      setInterval(() => {
+        items[cur].classList.remove("is-active");
+        cur = (cur + 1) % items.length;
+        items[cur].classList.add("is-active");
+      }, 5000);
+    });
+  </script>
   {% endif %}
+
   <div class="mast__meta">
     <span>{{ date_str }}</span>
     <span class="mast__lang">
@@ -70,6 +97,38 @@
     {% else %}
       {{ n }} {% if lang == 'hi' %}स्रोत{% else %}src{% endif %}
     {% endif %}
+  </div>
+</a>
+{%- endmacro %}
+
+{# ===== MAGAZINE NEWS CARD ===== #}
+{% macro news_card(art, lang, labels) -%}
+{% set c = art.category or 'general' %}
+{% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+{% set srcs = art.source_names[:3] if art.source_names else [] %}
+{% set n = art.source_count or srcs|length or 1 %}
+<a href="/{{ lang }}/article/{{ art.slug }}" class="news-card {{ art.col_span }} {{ art.card_class }} {{ cat_c(c) }}">
+  <div class="card-header">
+    <span class="category {{ cat_k(c) }}">
+      {% if art.is_hot %}<span class="hot" aria-hidden="true"></span>{% endif %}
+      {{ cat_name(c, labels) }}
+    </span>
+    <span class="time">{{ reltime(art.published_at, lang) }}</span>
+  </div>
+  <h2 class="card-title">{{ title }}</h2>
+  {% if art.excerpt %}
+  <p class="card-excerpt">{{ art.excerpt }}</p>
+  {% endif %}
+  <div class="card-footer">
+    <span>
+      {% if art.card_class in ('card-huge', 'card-large') %}
+        {% for s in srcs %}<strong>{{ s }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+        {% if n > 3 %} · +{{ n - 3 }} sources{% endif %}
+      {% else %}
+        {% for s in srcs[:2] %}<strong>{{ s }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+        {% if n > 2 %} · +{{ n - 2 }}{% endif %}
+      {% endif %}
+    </span>
   </div>
 </a>
 {%- endmacro %}

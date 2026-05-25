@@ -149,7 +149,7 @@ def _render_and_save_rollup(
     static_dir = Path(settings.STATIC_DIR)
     out_path = static_dir / lang / "archive" / period / f"{date_label}.html"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(rendered)
     log.info(f"Rendered rollup {period}/{date_label} ({category or 'all'}/{region or 'all'}) → {out_path}")
 
@@ -488,7 +488,7 @@ async def _regenerate_sitemap() -> None:
     sitemap_lines.append("</urlset>")
 
     out_path = static_dir / "sitemap.xml"
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(sitemap_lines))
     log.info(f"Regenerated sitemap with {len(urls)} URLs")
 

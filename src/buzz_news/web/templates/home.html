@@ -1,22 +1,23 @@
 {% extends "base.html" %}
-{% from "_macros.html" import mast, tile with context %}
+{% from "_macros.html" import mast, news_card with context %}
 
 {% block body %}
-{{ mast(lang, 'home', labels, date_str) }}
+{{ mast(lang, 'home', labels, date_str, articles) }}
 
-<section class="mos">
+<section class="grid-container hide-excerpt-default">
   {% for art in articles %}
-  {{ tile(art, art.tile_size or '1x1', lang, art.is_hot, labels) }}
+  {{ news_card(art, lang, labels) }}
   {% endfor %}
   {% if archive_str %}
-  {# Archive link tile — points to most recent completed daily rollup #}
-  <a href="/{{ lang }}/archive/day/{{ archive_str }}" class="tile tile--2x1 s-gen">
-    <div class="tile__cat">
-      <span class="k-gen">{{ labels.archive }}</span>
-      <span class="tile__cat-time">→</span>
+  {# Archive link card — points to most recent completed daily rollup #}
+  <a href="/{{ lang }}/archive/day/{{ archive_str }}" class="news-card col-12 s-gen" style="text-align: center; justify-content: center; align-items: center; min-height: 140px; border-top: 1px solid var(--grid-line);">
+    <div class="card-header" style="justify-content: center; width: 100%; margin-bottom: 8px;">
+      <span class="category k-gen">{{ labels.archive }}</span>
     </div>
-    <h2 class="tile__title">{{ labels.archive }} · {{ labels.this_week }} / {{ labels.this_month }} / {{ labels.this_year }}</h2>
-    <div class="tile__src">{{ cluster_count }} clusters tracked · {{ published_count }} published</div>
+    <h2 class="card-title" style="font-size: 20px; margin-bottom: 8px; font-family: var(--serif);">{{ labels.archive }} · {{ labels.this_week }} / {{ labels.this_month }} / {{ labels.this_year }}</h2>
+    <div class="card-footer" style="justify-content: center; margin-top: 0;">
+      <span>{{ cluster_count }} clusters tracked · {{ published_count }} published</span>
+    </div>
   </a>
   {% endif %}
 </section>

@@ -59,19 +59,33 @@ def _interleave_categories(articles: list[dict]) -> list[dict]:
 
 
 def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
-    """Rank-based tile sizing per Design.md §2.1:
-    top 1 → 2x2 (the lead), next 6 → 2x1, rest → 1x1.
-    Six 2x1s (even count) pair cleanly into 3 rows on the 6-col desktop grid;
-    five would leave a 1-col gap. The lead 2x2 fills 2 rows × 3 cols, paired
-    with two 2x1s on the right side."""
+    """Rank-based tile sizing per layout-4-magazine.html mockup.
+    Repeats a 7-article cycle:
+    - rank % 7 == 0: col_span="col-12", card_class="card-huge" (Lead)
+    - rank % 7 in (1, 2, 3, 4): col_span="col-3", card_class="" (4 equal columns)
+    - rank % 7 == 5: col_span="col-8", card_class="card-large" (Large asymmetric)
+    - rank % 7 == 6: col_span="col-4", card_class="" (Asymmetric balance)
+    """
     result = []
     for rank, art in enumerate(articles):
-        if rank == 0:
-            art["tile_size"] = "2x2"
-        elif rank <= 6:
-            art["tile_size"] = "2x1"
-        else:
-            art["tile_size"] = "1x1"
+        mod_rank = rank % 7
+        if mod_rank == 0:
+            art["col_span"] = "col-12"
+            art["card_class"] = "card-huge"
+            art["tile_size"] = "col-12 card-huge"
+        elif mod_rank in (1, 2, 3, 4):
+            art["col_span"] = "col-3"
+            art["card_class"] = ""
+            art["tile_size"] = "col-3"
+        elif mod_rank == 5:
+            art["col_span"] = "col-8"
+            art["card_class"] = "card-large"
+            art["tile_size"] = "col-8 card-large"
+        else:  # mod_rank == 6
+            art["col_span"] = "col-4"
+            art["card_class"] = ""
+            art["tile_size"] = "col-4"
+
         art["is_hot"] = art.get("is_hot", False)
         result.append(art)
     return result
@@ -90,8 +104,8 @@ def _render(template_name: str, **ctx) -> str:
 
 
 def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, archive_str: str) -> str:
-    articles = _compute_tile_sizes(articles)
     articles = _interleave_categories(articles)
+    articles = _compute_tile_sizes(articles)
     labels = _get_labels(lang)
     return _render(
         "home.html",
@@ -177,6 +191,8 @@ async def render_home_pages(limit: int = 22) -> int:
                 Article.slug,
                 Article.title_en,
                 Article.title_hi,
+                Article.summary_en,
+                Article.summary_hi,
                 Cluster.category.label("category"),
                 Article.region,
                 Article.hero_image_url,
@@ -203,12 +219,22 @@ async def render_home_pages(limit: int = 22) -> int:
         )
         names_by_article: dict[int, list[str]] = {}
         for art_id, name in src_result.fetchall():
-            names_by_article.setdefault(art_id, []).append(name)
+            names = names_by_article.setdefault(art_id, [])
+            if name not in names:
+                names.append(name)
 
     def _to_dict(row, lang: str) -> dict | None:
         if lang == "hi" and not row.title_hi:
             return None
         names = names_by_article.get(row.id, [])
+        summary = row.summary_hi if lang == "hi" and row.summary_hi else row.summary_en
+        excerpt = ""
+        if summary:
+            paragraphs = [p.strip() for p in summary.split("\n\n") if p.strip()]
+            if paragraphs:
+                excerpt = paragraphs[0]
+                if len(excerpt) > 200:
+                    excerpt = excerpt[:200] + "..."
         return {
             "id": row.id,
             "slug": row.slug,
@@ -221,6 +247,7 @@ async def render_home_pages(limit: int = 22) -> int:
             "score": float(row.current_score or 0),
             "source_count": row.source_count or len(names) or 1,
             "source_names": names,
+            "excerpt": excerpt,
         }
 
     async with async_session_factory() as session:
@@ -257,7 +284,7 @@ async def render_home_pages(limit: int = 22) -> int:
         )
         out_path = static_dir / lang / "index.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
+        with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)
         log.info(f"Rendered home page: {out_path} ({len(articles)} tiles)")
         written += 1
@@ -329,13 +356,32 @@ async def publish_top_n(n: int = 10) -> int:
                 .select_from(RawItem)
                 .join(Source, RawItem.source_id == Source.id)
                 .where(RawItem.cluster_id == cluster.id)
-                .limit(6)
             )
             rows = rows_result.fetchall()
-            article_sources = [
-                {"raw_item_id": r[0], "url": r[1], "title": r[2], "name": r[3], "published_at": r[4]}
-                for r in rows
-            ]
+            seen_urls = set()
+            seen_titles = set()
+            seen_names = set()
+            article_sources = []
+            for r in rows:
+                url = r[1]
+                title = r[2].strip().lower() if r[2] else ""
+                name = r[3].strip() if r[3] else ""
+                if url in seen_urls or (title and title in seen_titles) or (name and name in seen_names):
+                    continue
+                seen_urls.add(url)
+                if title:
+                    seen_titles.add(title)
+                if name:
+                    seen_names.add(name)
+                article_sources.append({
+                    "raw_item_id": r[0],
+                    "url": r[1],
+                    "title": r[2],
+                    "name": r[3],
+                    "published_at": r[4],
+                })
+                if len(article_sources) >= 6:
+                    break
 
         article_record = {
             "cluster_id": cluster.id,
@@ -400,7 +446,7 @@ async def publish_top_n(n: int = 10) -> int:
         static_dir = Path(settings.STATIC_DIR)
         out_path_en = static_dir / "en" / "article" / f"{slug}.html"
         out_path_en.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path_en, "w") as f:
+        with open(out_path_en, "w", encoding="utf-8") as f:
             f.write(rendered_en)
 
         if draft.body_hi and hi_passed:
@@ -415,7 +461,7 @@ async def publish_top_n(n: int = 10) -> int:
             )
             out_path_hi = static_dir / "hi" / "article" / f"{slug}.html"
             out_path_hi.parent.mkdir(parents=True, exist_ok=True)
-            with open(out_path_hi, "w") as f:
+            with open(out_path_hi, "w", encoding="utf-8") as f:
                 f.write(rendered_hi)
 
         await _purge_cloudflare([f"/en/article/{slug}.html", f"/hi/article/{slug}.html"])

@@ -61,16 +61,30 @@ async def main() -> int:
                 .where(ArticleSource.article_id == art.id)
                 .order_by(ArticleSource.rank)
             )).all()
-        article_sources = [
-            {
+        seen_urls = set()
+        seen_titles = set()
+        seen_names = set()
+        article_sources = []
+        for s in srcs:
+            url = s.url
+            title = s.title.strip().lower() if s.title else ""
+            name = s.source_name.strip() if s.source_name else ""
+            if url in seen_urls or (title and title in seen_titles) or (name and name in seen_names):
+                continue
+            seen_urls.add(url)
+            if title:
+                seen_titles.add(title)
+            if name:
+                seen_names.add(name)
+            article_sources.append({
                 "raw_item_id": s.raw_item_id,
                 "name": s.source_name,
                 "url": s.url,
                 "title": s.title,
                 "published_at": s.published_at,
-            }
-            for s in srcs
-        ]
+            })
+            if len(article_sources) >= 6:
+                break
 
         html_en = _render_article(
             art.id, "en",
