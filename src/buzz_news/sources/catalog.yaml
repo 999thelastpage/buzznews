@@ -143,22 +143,7 @@ sources:
     region: GLOBAL
     category: tech
     authority: 0.70
-  - slug: reddit_worldnews
-    name: Reddit — r/worldnews
-    url: https://www.reddit.com/r/worldnews/top.json?t=hour&limit=25
-    kind: reddit
-    language: en
-    region: GLOBAL
-    category: international
-    authority: 0.40
-  - slug: reddit_india
-    name: Reddit — r/india
-    url: https://www.reddit.com/r/india/top.json?t=hour&limit=25
-    kind: reddit
-    language: en
-    region: IN
-    category: general
-    authority: 0.40
+  # Reddit adapter dropped 2026-05-25 — anonymous JSON API restricted post-2023; never returned a single item.
 
   # ---------- GDELT ----------
   - slug: gdelt_latest

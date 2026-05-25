@@ -34,7 +34,7 @@ async def run_once() -> int:
                 try:
                     candidates = await fetch_source(source, http)
                 except Exception as e:
-                    log.error(f"Failed to fetch source {source.slug}: {e}")
+                    log.exception(f"Failed to fetch source {source.slug} ({type(e).__name__})")
                     fail_count = source.fail_count + 1
                     new_enabled = fail_count >= FAIL_DISABLE_THRESHOLD
                     if new_enabled:

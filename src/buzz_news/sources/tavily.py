@@ -6,19 +6,23 @@ import httpx
 from buzz_news.sources.base import RawCandidate
 from buzz_news.models import Source
 from buzz_news.config import get_settings
-from buzz_news.openclaw_client import call_skill
 
 settings = get_settings()
 log = logging.getLogger("buzz_news.sources.tavily")
+
+TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
 
 class TavilyAdapter:
     async def fetch(self, source: Source, http: httpx.AsyncClient) -> list[RawCandidate]:
         extra = source.extra or {}
         query = extra.get("query", "")
-        max_results = extra.get("max_results", 20)
         if not query:
             log.warning(f"Tavily source {source.slug} has no query, skipping")
+            return []
+
+        if not settings.TAVILY_API_KEY or settings.TAVILY_API_KEY == "TODO_BEFORE_PHASE_1":
+            log.warning(f"Tavily source {source.slug} skipped: TAVILY_API_KEY not set")
             return []
 
         now = datetime.now(timezone.utc)
@@ -29,14 +33,21 @@ class TavilyAdapter:
                 log.info(f"Tavily source {source.slug} skipped: {age:.0f}m since last fetch (< {cadence}m cadence)")
                 return []
 
-        try:
-            result = await call_skill(
-                "skills/openclaw-tavily-search/search",
-                {"query": query, "max_results": max_results},
-            )
-        except Exception as e:
-            log.error(f"Tavily skill call failed for {source.slug}: {e}")
-            raise
+        payload = {
+            "api_key": settings.TAVILY_API_KEY,
+            "query": query,
+            "max_results": extra.get("max_results", 20),
+            "search_depth": extra.get("search_depth", "basic"),
+            "topic": extra.get("topic", "news"),
+            "include_domains": extra.get("include_domains", []),
+            "exclude_domains": extra.get("exclude_domains", []),
+        }
+        if payload["topic"] == "news":
+            payload["days"] = extra.get("days", 1)
+
+        response = await http.post(TAVILY_SEARCH_URL, json=payload, timeout=30.0)
+        response.raise_for_status()
+        result = response.json()
 
         articles = result.get("results", [])
         candidates = []
@@ -60,4 +71,5 @@ class TavilyAdapter:
                 language=source.language,
             ))
 
+        log.info(f"Tavily source {source.slug}: {len(candidates)} candidates for query={query!r}")
         return candidates
