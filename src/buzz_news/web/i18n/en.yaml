@@ -25,6 +25,7 @@ cat_sports: Sports
 cat_film: Film
 cat_science: Science
 cat_general: General
+cat_culture: Culture
 time_min: m
 time_hour: h
 time_day: d

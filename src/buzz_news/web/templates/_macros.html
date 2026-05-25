@@ -1,55 +1,293 @@
-{# ===== MASTHEAD =====
-   `page` is either 'home' (no path suffix) or the full per-language path
-   suffix to append after the lang prefix (e.g. 'article/foo-42',
-   'archive/day/2026-05-24'). Slugs and archive paths are language-agnostic,
-   so the EN/HI links share the same suffix and differ only in /en/ vs /hi/.
-#}
-{% macro mast(lang, page, labels, date_str) -%}
-<header class="mast">
-  {% if page == 'home' %}
-  <h1 class="mast__brand">Buzz<em>news</em><span class="dot" aria-hidden="true"></span></h1>
-  {% else %}
-  <a href="/{{ lang }}/" class="mast__brand">Buzz<em>news</em></a>
-  {% endif %}
-  <div class="mast__meta">
-    <span>{{ date_str }}</span>
-    <span class="mast__lang">
-      <a href="/en/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='en' %}class="is-active"{% endif %}>EN</a>·
-      <a href="/hi/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='hi' %}class="is-active"{% endif %}>HI</a>
+{# ===== UTILS & FORMATTERS ===== #}
+
+{% macro reltime(dt, lang) -%}
+  {% set s = (( (utc_now() - dt).total_seconds() / 60 ))|int %}
+  {% if s < 60 %}{{ s }}{{ labels.time_min }}{% elif s < 1440 %}{{ (s / 60)|int }}{{ labels.time_hour }}{% elif s < 10080 %}{{ (s / 1440)|int }}{{ labels.time_day }}{% else %}{{ (s / 10080)|int }}{{ labels.time_week }}{% endif %}
+{%- endmacro %}
+
+{% macro cat_prefix(cat) -%}
+{% if cat in ('international', 'intl') %}intl{% elif cat in ('politics', 'pol') %}pol{% elif cat in ('business', 'biz') %}biz{% elif cat in ('technology', 'tech') %}tech{% elif cat in ('sports', 'sport') %}sport{% elif cat in ('culture', 'cult') %}cult{% else %}gen{% endif %}
+{%- endmacro %}
+
+{% macro cat_c(cat) -%}
+{% if cat in ('international', 'intl') %}s-intl{% elif cat in ('politics', 'pol') %}s-pol{% elif cat in ('business', 'biz') %}s-biz{% elif cat in ('technology', 'tech') %}s-tech{% elif cat in ('sports', 'sport') %}s-sport{% elif cat in ('culture', 'cult') %}s-cult{% else %}s-gen{% endif %}
+{%- endmacro %}
+
+{% macro cat_k(cat) -%}
+{% if cat in ('international', 'intl') %}k-intl{% elif cat in ('politics', 'pol') %}k-pol{% elif cat in ('business', 'biz') %}k-biz{% elif cat in ('technology', 'tech') %}k-tech{% elif cat in ('sports', 'sport') %}k-sport{% elif cat in ('culture', 'cult') %}k-cult{% else %}k-gen{% endif %}
+{%- endmacro %}
+
+{% macro cat_name(cat, labels) -%}
+{% if cat in ('international', 'intl') %}{{ labels.cat_intl or 'International' }}{% elif cat in ('politics', 'pol') %}{{ labels.cat_politics or 'Politics' }}{% elif cat in ('business', 'biz') %}{{ labels.cat_business or 'Business' }}{% elif cat in ('technology', 'tech') %}{{ labels.cat_tech or 'Technology' }}{% elif cat in ('sports', 'sport') %}{{ labels.cat_sports or 'Sports' }}{% elif cat in ('culture', 'cult') %}{{ labels.cat_culture or 'Culture' }}{% else %}{{ labels.cat_general or 'General' }}{% endif %}
+{%- endmacro %}
+
+{% macro source_color(name) -%}
+{% set n = name|lower %}
+{% if 'al jazeera' in n or 'aljazeera' in n %}#b49045
+{% elif 'bbc' in n %}#bb1919
+{% elif 'hindu' in n %}#8b0000
+{% elif 'ndtv' in n %}#1e3a8a
+{% elif 'hacker' in n or 'hn' == n %}#f97316
+{% elif 'aaj tak' in n or 'aajtak' in n %}#dc2626
+{% else %}#78716c
+{% endif %}
+{%- endmacro %}
+
+{# ===== SPARKLINE SVG ===== #}
+{% macro sparkline(data, category) -%}
+{% if data and data|length > 1 %}
+  {% set max_val = data|max %}
+  {% set min_val = data|min %}
+  {% set range_val = max_val - min_val %}
+  {% set range_val = range_val if range_val > 0 else 1.0 %}
+  {% set c_pref = cat_prefix(category) %}
+  <svg width="60" height="16" class="sparkline" style="overflow: visible; opacity: 0.7; margin-left: 8px; vertical-align: middle; display: inline-block;">
+    <polyline points="{% for val in data %}{% set x = (loop.index0 / (data|length - 1)) * 60 %}{% set y = 16 - ((val - min_val) / range_val) * 16 %}{{ x|round(1) }},{{ y|round(1) }}{% if not loop.last %} {% endif %}{% endfor %}" fill="none" stroke="var(--c-{{ c_pref }})" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+{% endif %}
+{%- endmacro %}
+
+{# ===== SOURCE BUBBLE CLUSTER ===== #}
+{% macro source_cluster(srcs, total_count, lang, labels) -%}
+{% if srcs %}
+<details class="source-cluster">
+  <summary class="source-cluster__summary">
+    <div class="source-cluster__bubbles">
+      {% for s in srcs[:4] %}
+        {% set name_init = "" %}
+        {% set words = s.name.split() %}
+        {% if words|length > 1 %}
+          {% set name_init = words[0][0]|upper ~ words[1][0]|upper %}
+        {% elif words|length > 0 %}
+          {% set name_init = words[0][0]|upper %}
+        {% endif %}
+        <div class="source-cluster__bubble" style="background-color: {{ source_color(s.name) }}; z-index: {{ 10 - loop.index0 }};">
+          {{ name_init }}
+        </div>
+      {% endfor %}
+    </div>
+    <span class="source-cluster__label">
+      +{{ total_count - srcs[:4]|length }} {% if lang == 'hi' %}स्रोत{% else %}sources{% endif %}
+      <svg class="source-cluster__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
     </span>
+  </summary>
+  <div class="source-cluster__drawer">
+    {% for s in srcs %}
+      {% set name_init = "" %}
+      {% set words = s.name.split() %}
+      {% if words|length > 1 %}
+        {% set name_init = words[0][0]|upper ~ words[1][0]|upper %}
+      {% elif words|length > 0 %}
+        {% set name_init = words[0][0]|upper %}
+      {% endif %}
+      <a href="{{ s.url }}" class="source-cluster__item" target="_blank" rel="noopener">
+        <div class="source-cluster__item-bubble" style="background-color: {{ source_color(s.name) }};">
+          {{ name_init }}
+        </div>
+        <div class="source-cluster__item-body">
+          <div class="source-cluster__item-name">{{ s.name }}</div>
+          <div class="source-cluster__item-title">{{ s.title or (labels.source or 'Source') }}</div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+{%- endmacro %}
+
+{# ===== MASTHEAD ===== #}
+{% macro mast(lang, page, labels, date_str, articles=None) -%}{# date_str is used in right-hand side #}
+<header class="mast">
+  <div class="mast__container">
+    {# Logo #}
+    <a href="/{{ lang }}/" class="mast__brand">
+      Buzznews
+      <div class="dot"></div>
+    </a>
+
+    {# Trending Ticker #}
+    {% if articles %}
+    <div class="headline-bar" aria-label="{{ labels.trending_now }}">
+      <span class="headline-bar__label">{{ labels.trending_now|upper or 'TRENDING NOW' }}</span>
+      <div class="headline-bar__content">
+        {% for art in articles[:10] %}
+          {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+          <a href="/{{ lang }}/article/{{ art.slug }}" class="headline-bar__item {% if loop.first %}is-active{% endif %}" id="ticker-item-{{ loop.index0 }}">{{ title }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const items = document.querySelectorAll(".headline-bar__item");
+        if (items.length <= 1) return;
+        let cur = 0;
+        setInterval(() => {
+          items[cur].classList.remove("is-active");
+          cur = (cur + 1) % items.length;
+          items[cur].classList.add("is-active");
+        }, 5000);
+      });
+    </script>
+    {% endif %}
+
+    {# Metadata & Theme Toggler #}
+    <div class="mast__meta">
+      <span>{{ date_str|upper }}</span>
+      <div class="mast__lang">
+        <a href="/en/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='en' %}class="is-active"{% endif %}>EN</a>
+        <span style="color: var(--muted-soft);">·</span>
+        <a href="/hi/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='hi' %}class="is-active"{% endif %}>HI</a>
+      </div>
+      <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle theme">
+        <svg class="sun-icon" style="display: none; width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="moon-icon" style="display: none; width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      </button>
+      <script>
+        document.addEventListener("DOMContentLoaded", () => {
+          const toggleBtn = document.getElementById("theme-toggle");
+          if (!toggleBtn) return;
+          const sunIcon = toggleBtn.querySelector(".sun-icon");
+          const moonIcon = toggleBtn.querySelector(".moon-icon");
+
+          function updateThemeIcons(isDark) {
+            if (isDark) {
+              sunIcon.style.display = "block";
+              moonIcon.style.display = "none";
+            } else {
+              sunIcon.style.display = "none";
+              moonIcon.style.display = "block";
+            }
+          }
+
+          let currentTheme = localStorage.getItem("theme");
+          if (!currentTheme) {
+            currentTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+
+          if (currentTheme === "dark") {
+            document.documentElement.classList.add("dark");
+            updateThemeIcons(true);
+          } else {
+            document.documentElement.classList.remove("dark");
+            updateThemeIcons(false);
+          }
+
+          toggleBtn.addEventListener("click", () => {
+            const isDark = document.documentElement.classList.toggle("dark");
+            localStorage.setItem("theme", isDark ? "dark" : "light");
+            updateThemeIcons(isDark);
+          });
+        });
+      </script>
+    </div>
   </div>
 </header>
 {%- endmacro %}
 
-{# ===== RELATIVE TIME ===== #}
-{% macro reltime(dt, lang) -%}
-{% if lang == 'hi' %}
-  {% set s = (( (utc_now() - dt).total_seconds() / 60 ))|int %}
-  {% if s < 60 %}{{ s }}{{ labels.time_min }}{% elif s < 1440 %}{{ (s / 60)|int }}{{ labels.time_hour }}{% elif s < 10080 %}{{ (s / 1440)|int }}{{ labels.time_day }}{% else %}{{ (s / 10080)|int }}{{ labels.time_week }}{% endif %}
-{% else %}
-  {% set s = (( (utc_now() - dt).total_seconds() / 60 ))|int %}
-  {% if s < 60 %}{{ s }}{{ labels.time_min }}{% elif s < 1440 %}{{ (s / 60)|int }}{{ labels.time_hour }}{% elif s < 10080 %}{{ (s / 1440)|int }}{{ labels.time_day }}{% else %}{{ (s / 10080)|int }}{{ labels.time_week }}{% endif %}
-{% endif %}
+{# ===== DAILY BRIEF SIDEBAR ===== #}
+{% macro daily_brief(arts, lang, labels, date_str) -%}
+<div class="daily-brief" style="height: 100%; display: flex; flex-direction: column;">
+  <div class="brief-header">
+    <h2 class="brief-title">{{ labels.the_brief or 'The Brief' }}</h2>
+    <span class="brief-date">· {{ date_str }}</span>
+  </div>
+  <ul class="brief-list">
+    {% for art in arts[:5] %}
+      {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+      {% set c_pref = cat_prefix(art.category) %}
+      <li class="brief-item">
+        <div class="brief-item__meta">
+          <span class="brief-item__dot" style="background-color: var(--c-{{ c_pref }});"></span>
+          <span class="brief-item__cat">{{ cat_name(art.category, labels) }}</span>
+        </div>
+        <p class="brief-item__text">{{ title }}</p>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
 {%- endmacro %}
 
-{# ===== CAT CLASS ===== #}
-{% macro cat_c(cat) -%}
-{% if cat in ('international', 'intl') %}s-intl{% elif cat in ('politics', 'pol') %}s-pol{% elif cat in ('business', 'biz') %}s-biz{% elif cat in ('technology', 'tech') %}s-tech{% elif cat in ('sports', 'sport') %}s-sport{% elif cat == 'film' %}s-film{% elif cat in ('science', 'sci') %}s-sci{% else %}s-gen{% endif %}
+{# ===== LEAD STORY ===== #}
+{% macro lead_story(art, lang, labels) -%}
+{% set c = art.category or 'general' %}
+{% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+{% set c_pref = cat_prefix(c) %}
+<div class="py-1 relative h-full flex flex-col">
+  <div class="flex justify-between items-start mb-3">
+    <div class="flex items-center gap-4">
+      <span class="text-[10px] tracking-widest uppercase font-semibold {{ cat_k(c) }}">
+        {{ cat_name(c, labels) }}
+      </span>
+      {{ sparkline(art.trending_data, c) }}
+    </div>
+    <span class="text-xs font-medium time {% if art.is_breaking %}is-breaking{% endif %}">
+      {{ reltime(art.published_at, lang) }}
+    </span>
+  </div>
+
+  <h1 class="lead-title card-title">
+    <a href="/{{ lang }}/article/{{ art.slug }}">{{ title }}</a>
+  </h1>
+
+  <div class="max-w-4xl flex-grow flex flex-col">
+    <p class="text-[17px] font-serif text-stone-600 dark:text-neutral-300 leading-snug drop-cap mb-3">
+      {{ art.excerpt }}
+    </p>
+
+    <div class="why-matters lead-matters">
+      <span class="why-matters__bullet">✦</span>
+      <p>{{ art.why_it_matters or 'Coverage of this development continues.' }}</p>
+    </div>
+
+    <div class="mt-auto">
+      {{ source_cluster(art.sources, art.source_count or art.sources|length, lang, labels) }}
+    </div>
+  </div>
+</div>
 {%- endmacro %}
 
-{% macro cat_k(cat) -%}
-{% if cat in ('international', 'intl') %}k-intl{% elif cat in ('politics', 'pol') %}k-pol{% elif cat in ('business', 'biz') %}k-biz{% elif cat in ('technology', 'tech') %}k-tech{% elif cat in ('sports', 'sport') %}k-sport{% elif cat == 'film' %}k-film{% elif cat in ('science', 'sci') %}k-sci{% else %}k-gen{% endif %}
+{# ===== NEWS CARD ===== #}
+{% macro news_card(art, lang, labels, is_large=false) -%}
+{% set c = art.category or 'general' %}
+{% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
+{% set c_pref = cat_prefix(c) %}
+<div class="flex flex-col h-full">
+  <div class="flex justify-between items-start mb-2">
+    <div class="flex items-center gap-3">
+      <span class="text-[10px] tracking-widest uppercase font-semibold {{ cat_k(c) }}">
+        {{ cat_name(c, labels) }}
+      </span>
+      {{ sparkline(art.trending_data, c) }}
+    </div>
+    <span class="text-[10px] font-medium time {% if art.is_breaking %}is-breaking{% endif %}">
+      {{ reltime(art.published_at, lang) }}
+    </span>
+  </div>
+
+  <h2 class="card-title {% if is_large %}text-2xl{% else %}text-lg{% endif %}">
+    <a href="/{{ lang }}/article/{{ art.slug }}">{{ title }}</a>
+  </h2>
+
+  <p class="card-excerpt">
+    {{ art.excerpt }}
+  </p>
+
+  <div class="why-matters">
+    <span class="why-matters__bullet">→</span>
+    <p class="leading-snug">{{ art.why_it_matters or 'Coverage of this development continues.' }}</p>
+  </div>
+
+  <div class="mt-auto">
+    {{ source_cluster(art.sources, art.source_count or art.sources|length, lang, labels) }}
+  </div>
+</div>
 {%- endmacro %}
 
-{% macro cat_name(cat, labels) -%}
-{% if cat in ('international', 'intl') %}{{ labels.cat_intl }}{% elif cat in ('politics', 'pol') %}{{ labels.cat_politics }}{% elif cat in ('business', 'biz') %}{{ labels.cat_business }}{% elif cat in ('technology', 'tech') %}{{ labels.cat_tech }}{% elif cat in ('sports', 'sport') %}{{ labels.cat_sports }}{% elif cat == 'film' %}{{ labels.cat_film }}{% elif cat in ('science', 'sci') %}{{ labels.cat_science }}{% else %}{{ labels.cat_general }}{% endif %}
-{%- endmacro %}
-
-{# ===== MOSAIC TILE ===== #}
+{# ===== LEGACY TILE (RETAINED FOR BACKWARDS COMPATIBILITY) ===== #}
 {% macro tile(art, size, lang, is_hot, labels) -%}
 {% set c = art.category or 'general' %}
 {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
-{% set srcs = art.source_names[:3] if art.source_names else [] %}
+{% set srcs = art.sources if art.sources else [] %}
 {% set n = art.source_count or srcs|length or 1 %}
 <a href="/{{ lang }}/article/{{ art.slug }}" class="tile tile--{{ size }} {{ cat_c(c) }}">
   <div class="tile__cat">
@@ -62,10 +300,10 @@
   <h2 class="tile__title">{{ title }}</h2>
   <div class="tile__src">
     {% if size == '2x2' %}
-      {% for s in srcs %}<strong>{{ s }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+      {% for s in srcs[:3] %}<strong>{{ s.name }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
       {% if n > 3 %} · +{{ n - 3 }} sources{% endif %}
     {% elif size == '2x1' %}
-      {% for s in srcs[:2] %}<strong>{{ s }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+      {% for s in srcs[:2] %}<strong>{{ s.name }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
       {% if n > 2 %} · +{{ n - 2 }}{% endif %}
     {% else %}
       {{ n }} {% if lang == 'hi' %}स्रोत{% else %}src{% endif %}
@@ -78,8 +316,8 @@
 {% macro article_head(art, is_hot, lang, labels) -%}
 {% set c = art.category or 'general' %}
 {% set title = art.title_en if lang == 'en' else (art.title_hi or art.title_en) %}
-{% set n = art.source_count or art.source_names|length or 1 %}
-<header class="article__head" style="--c-intl: var(--c-{% if c == 'international' %}intl{% elif c == 'politics' %}pol{% elif c == 'business' %}biz{% elif c == 'technology' %}tech{% elif c == 'sports' %}sport{% elif c == 'film' %}film{% elif c == 'science' %}sci{% else %}gen{% endif %});">
+{% set n = art.source_count or art.sources|length or 1 %}
+<header class="article__head" style="--c-intl: var(--c-{{ cat_prefix(c) }});">
   <div class="article__kicker">
     {% if is_hot %}<span class="hot" aria-hidden="true"></span>{% endif %}
     {{ cat_name(c, labels) }}{% if is_hot %} · Buzz{% endif %}
@@ -102,7 +340,7 @@
 {% endif %}
 {%- endmacro %}
 
-{# ===== SOURCES BLOCK ===== #}
+{# ===== LEGACY SOURCES BLOCK (RETAINED) ===== #}
 {% macro sources(srcs, lang, labels) -%}
 <section class="src-mos" aria-label="{{ labels.sources }}">
   <h2 class="src-mos__h">{{ labels.sources or 'Read at sources' }}</h2>
@@ -111,7 +349,7 @@
     <a href="{{ s.url }}" class="src-tile" target="_blank" rel="noopener">
       <div class="src-tile__head">
         <span class="src-tile__name">{{ s.name }}</span>
-        <span class="src-tile__time">{{ reltime(s.published_at or art.published_at, lang) }}</span>
+        <span class="src-tile__time">{{ reltime(s.published_at or utc_now(), lang) }}</span>
       </div>
       <div class="src-tile__title">{{ s.title }}</div>
     </a>

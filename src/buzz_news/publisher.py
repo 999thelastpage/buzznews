@@ -7,7 +7,7 @@ from sqlalchemy import func, select, update
 
 from buzz_news.config import get_settings
 from buzz_news.db import async_session_factory
-from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source
+from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source, ClusterScore
 from buzz_news.writer import write_article
 from buzz_news.verifier import verify_en, verify_hi
 from buzz_news.imager import pick_image
@@ -59,19 +59,52 @@ def _interleave_categories(articles: list[dict]) -> list[dict]:
 
 
 def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
-    """Rank-based tile sizing per Design.md §2.1:
-    top 1 → 2x2 (the lead), next 6 → 2x1, rest → 1x1.
-    Six 2x1s (even count) pair cleanly into 3 rows on the 6-col desktop grid;
-    five would leave a 1-col gap. The lead 2x2 fills 2 rows × 3 cols, paired
-    with two 2x1s on the right side."""
+    """Rank-based tile sizing matching the mockup grid layout.
+    Article 0 is the lead story (rendered separately in the template).
+    Articles 1+ use a repeating 14-position cycle:
+      Positions 0-2:  Row 2 — three 4-col standard cards
+      Position  3:    Row 3 — 7-col large card
+      Position  4:    Row 3 — 5-col large card
+      Position  5:    Row 4 — 6-col bento (row-span-2) large card
+      Positions 6-9:  Row 4 — four 3-col standard cards
+      Position  10:   Row 5 — 4-col standard card
+      Position  11:   Row 5 — 8-col large card
+      Positions 12-13: Row 6 — two 6-col large cards
+    """
     result = []
     for rank, art in enumerate(articles):
         if rank == 0:
-            art["tile_size"] = "2x2"
-        elif rank <= 6:
-            art["tile_size"] = "2x1"
+            # Lead story — template handles grid placement directly
+            art["col_span"] = "col-span-12 lg:col-span-8 lg:row-span-2"
+            art["card_class"] = "card-huge"
         else:
-            art["tile_size"] = "1x1"
+            # Repeating 14-position cycle for all non-lead articles
+            cycle = (rank - 1) % 14
+            if cycle in (0, 1, 2):
+                art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-4"
+                art["card_class"] = ""
+            elif cycle == 3:
+                art["col_span"] = "col-span-12 lg:col-span-7"
+                art["card_class"] = "card-large"
+            elif cycle == 4:
+                art["col_span"] = "col-span-12 lg:col-span-5"
+                art["card_class"] = "card-large"
+            elif cycle == 5:
+                art["col_span"] = "col-span-12 lg:col-span-6 lg:row-span-2"
+                art["card_class"] = "card-large"
+            elif cycle in (6, 7, 8, 9):
+                art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-3"
+                art["card_class"] = ""
+            elif cycle == 10:
+                art["col_span"] = "col-span-12 lg:col-span-4"
+                art["card_class"] = ""
+            elif cycle == 11:
+                art["col_span"] = "col-span-12 lg:col-span-8"
+                art["card_class"] = "card-large"
+            else:  # cycle in (12, 13)
+                art["col_span"] = "col-span-12 lg:col-span-6"
+                art["card_class"] = "card-large"
+
         art["is_hot"] = art.get("is_hot", False)
         result.append(art)
     return result
@@ -90,8 +123,8 @@ def _render(template_name: str, **ctx) -> str:
 
 
 def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, archive_str: str) -> str:
-    articles = _compute_tile_sizes(articles)
     articles = _interleave_categories(articles)
+    articles = _compute_tile_sizes(articles)
     labels = _get_labels(lang)
     return _render(
         "home.html",
@@ -148,6 +181,7 @@ def _render_article(
             "hero_image_url": image_url,
             "hero_image_credit": image_credit,
             "source_count": len(article_sources),
+            "sources": article_sources,
         },
         is_hot=is_hot,
         body_paragraphs=[p.strip() for p in body.split("\n\n") if p.strip()],
@@ -163,7 +197,33 @@ def _get_labels(lang: str) -> dict:
     return get_labels(lang)
 
 
-async def render_home_pages(limit: int = 22) -> int:
+def _extract_why_it_matters(summary: str | None, lang: str) -> str:
+    if not summary:
+        return ""
+    summary = summary.strip()
+    if lang == "hi":
+        parts = [p.strip() for p in summary.split("।") if p.strip()]
+        if parts:
+            return parts[-1] + "।"
+    else:
+        parts = [p.strip() for p in summary.split(". ") if p.strip()]
+        if parts:
+            last = parts[-1]
+            if last and not last.endswith((".", "?", "!")):
+                last += "."
+            return last
+    return ""
+
+
+def _get_trending_data(cluster_id: int, current_score: float, scores_by_cluster: dict[int, list[float]]) -> list[float]:
+    trending = scores_by_cluster.get(cluster_id, [])
+    if len(trending) < 2:
+        s_val = float(current_score or 0.0)
+        return [s_val, s_val]
+    return [float(x) for x in trending[-10:]]
+
+
+async def render_home_pages(limit: int = 15) -> int:
     """Render <STATIC_DIR>/{en,hi}/index.html with the top N published articles.
     Returns the number of language files written."""
     async with async_session_factory() as session:
@@ -177,12 +237,15 @@ async def render_home_pages(limit: int = 22) -> int:
                 Article.slug,
                 Article.title_en,
                 Article.title_hi,
+                Article.summary_en,
+                Article.summary_hi,
                 Cluster.category.label("category"),
                 Article.region,
                 Article.hero_image_url,
                 Article.published_at,
                 Cluster.current_score,
                 Cluster.source_count,
+                Article.cluster_id,
             )
             .join(Cluster, Article.cluster_id == Cluster.id)
             .where(*[~Article.title_en.contains(p) for p in garbage_phrases])
@@ -196,19 +259,60 @@ async def render_home_pages(limit: int = 22) -> int:
             return 0
 
         article_ids = [r.id for r in rows]
+        cluster_ids = [r.cluster_id for r in rows]
+
+        # Fetch sources with URLs and raw titles
         src_result = await session.execute(
-            select(ArticleSource.article_id, ArticleSource.source_name)
+            select(
+                ArticleSource.article_id,
+                ArticleSource.source_name,
+                ArticleSource.url,
+                RawItem.title
+            )
+            .join(RawItem, ArticleSource.raw_item_id == RawItem.id)
             .where(ArticleSource.article_id.in_(article_ids))
             .order_by(ArticleSource.article_id, ArticleSource.rank)
         )
-        names_by_article: dict[int, list[str]] = {}
-        for art_id, name in src_result.fetchall():
-            names_by_article.setdefault(art_id, []).append(name)
+        sources_by_article = {}
+        for art_id, name, url, title in src_result.fetchall():
+            srcs = sources_by_article.setdefault(art_id, [])
+            if not any(s["name"] == name for s in srcs):
+                srcs.append({
+                    "name": name,
+                    "url": url,
+                    "title": title or "",
+                })
+
+        # Fetch historical composite scores for trending sparklines
+        scores_result = await session.execute(
+            select(ClusterScore.cluster_id, ClusterScore.composite)
+            .where(ClusterScore.cluster_id.in_(cluster_ids))
+            .order_by(ClusterScore.cluster_id, ClusterScore.computed_at.asc())
+        )
+        scores_by_cluster = {}
+        for c_id, comp in scores_result.fetchall():
+            scores_by_cluster.setdefault(c_id, []).append(float(comp))
 
     def _to_dict(row, lang: str) -> dict | None:
         if lang == "hi" and not row.title_hi:
             return None
-        names = names_by_article.get(row.id, [])
+        art_sources = sources_by_article.get(row.id, [])
+        names = [s["name"] for s in art_sources]
+        summary = row.summary_hi if lang == "hi" and row.summary_hi else row.summary_en
+        excerpt = ""
+        if summary:
+            paragraphs = [p.strip() for p in summary.split("\n\n") if p.strip()]
+            if paragraphs:
+                excerpt = paragraphs[0]
+                if len(excerpt) > 200:
+                    excerpt = excerpt[:200] + "..."
+
+        why_it_matters = _extract_why_it_matters(summary, lang)
+        if not why_it_matters:
+            why_it_matters = "इस घटनाक्रम पर कवरेज जारी है।" if lang == "hi" else "Coverage of this development continues."
+
+        trending_data = _get_trending_data(row.cluster_id, row.current_score, scores_by_cluster)
+
         return {
             "id": row.id,
             "slug": row.slug,
@@ -221,6 +325,10 @@ async def render_home_pages(limit: int = 22) -> int:
             "score": float(row.current_score or 0),
             "source_count": row.source_count or len(names) or 1,
             "source_names": names,
+            "sources": art_sources,
+            "excerpt": excerpt,
+            "why_it_matters": why_it_matters,
+            "trending_data": trending_data,
         }
 
     async with async_session_factory() as session:
@@ -257,7 +365,7 @@ async def render_home_pages(limit: int = 22) -> int:
         )
         out_path = static_dir / lang / "index.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
+        with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)
         log.info(f"Rendered home page: {out_path} ({len(articles)} tiles)")
         written += 1
@@ -329,13 +437,32 @@ async def publish_top_n(n: int = 10) -> int:
                 .select_from(RawItem)
                 .join(Source, RawItem.source_id == Source.id)
                 .where(RawItem.cluster_id == cluster.id)
-                .limit(6)
             )
             rows = rows_result.fetchall()
-            article_sources = [
-                {"raw_item_id": r[0], "url": r[1], "title": r[2], "name": r[3], "published_at": r[4]}
-                for r in rows
-            ]
+            seen_urls = set()
+            seen_titles = set()
+            seen_names = set()
+            article_sources = []
+            for r in rows:
+                url = r[1]
+                title = r[2].strip().lower() if r[2] else ""
+                name = r[3].strip() if r[3] else ""
+                if url in seen_urls or (title and title in seen_titles) or (name and name in seen_names):
+                    continue
+                seen_urls.add(url)
+                if title:
+                    seen_titles.add(title)
+                if name:
+                    seen_names.add(name)
+                article_sources.append({
+                    "raw_item_id": r[0],
+                    "url": r[1],
+                    "title": r[2],
+                    "name": r[3],
+                    "published_at": r[4],
+                })
+                if len(article_sources) >= 6:
+                    break
 
         article_record = {
             "cluster_id": cluster.id,
@@ -400,7 +527,7 @@ async def publish_top_n(n: int = 10) -> int:
         static_dir = Path(settings.STATIC_DIR)
         out_path_en = static_dir / "en" / "article" / f"{slug}.html"
         out_path_en.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path_en, "w") as f:
+        with open(out_path_en, "w", encoding="utf-8") as f:
             f.write(rendered_en)
 
         if draft.body_hi and hi_passed:
@@ -415,7 +542,7 @@ async def publish_top_n(n: int = 10) -> int:
             )
             out_path_hi = static_dir / "hi" / "article" / f"{slug}.html"
             out_path_hi.parent.mkdir(parents=True, exist_ok=True)
-            with open(out_path_hi, "w") as f:
+            with open(out_path_hi, "w", encoding="utf-8") as f:
                 f.write(rendered_hi)
 
         await _purge_cloudflare([f"/en/article/{slug}.html", f"/hi/article/{slug}.html"])

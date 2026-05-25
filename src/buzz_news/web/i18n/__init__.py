@@ -13,7 +13,7 @@ def get_labels(lang: str) -> dict:
         lang = DEFAULT_LANG
     path = Path(__file__).parent / f"{lang}.yaml"
     if path.exists():
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     return {}
 

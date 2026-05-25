@@ -1,29 +1,48 @@
 {% extends "base.html" %}
-{% from "_macros.html" import mast, tile with context %}
+{% from "_macros.html" import mast, lead_story, daily_brief, news_card with context %}
 
 {% block body %}
-{{ mast(lang, 'home', labels, date_str) }}
+{{ mast(lang, 'home', labels, date_str, articles) }}
 
-<section class="mos">
-  {% for art in articles %}
-  {{ tile(art, art.tile_size or '1x1', lang, art.is_hot, labels) }}
-  {% endfor %}
-  {% if archive_str %}
-  {# Archive link tile — points to most recent completed daily rollup #}
-  <a href="/{{ lang }}/archive/day/{{ archive_str }}" class="tile tile--2x1 s-gen">
-    <div class="tile__cat">
-      <span class="k-gen">{{ labels.archive }}</span>
-      <span class="tile__cat-time">→</span>
+<main style="flex-grow: 1; max-width: 1600px; margin: 0 auto; width: 100%; padding: 24px var(--rail);">
+  <section class="grid-container">
+    {# Row 1: Lead (8x2) + Brief sidebar (4x2) #}
+    {% if articles|length > 0 %}
+      {% set lead_art = articles[0] %}
+      <div class="col-span-12 lg:col-span-8 lg:row-span-2 tile-lg">
+        {{ lead_story(lead_art, lang, labels) }}
+      </div>
+    {% endif %}
+
+    <div class="col-span-12 lg:col-span-4 lg:row-span-2 tile">
+      {{ daily_brief(articles, lang, labels, date_str) }}
     </div>
-    <h2 class="tile__title">{{ labels.archive }} · {{ labels.this_week }} / {{ labels.this_month }} / {{ labels.this_year }}</h2>
-    <div class="tile__src">{{ cluster_count }} clusters tracked · {{ published_count }} published</div>
-  </a>
-  {% endif %}
-</section>
 
-<footer class="foot">
-  {% if archive_str %}<a href="/{{ lang }}/archive/day/{{ archive_str }}">{{ labels.archive }}</a>{% endif %}
-  <a href="/{{ lang }}/privacy">Privacy</a>
-  <span style="margin-left:auto">Made in Hyderabad</span>
-</footer>
+    {# Subsequent articles dynamically positioned in grid #}
+    {% for art in articles[1:] %}
+      <div class="{{ art.col_span }} {% if art.card_class == 'card-large' or art.card_class == 'card-huge' %}tile-lg{% else %}tile{% endif %}">
+        {{ news_card(art, lang, labels, is_large=(art.card_class == 'card-large' or art.card_class == 'card-huge')) }}
+      </div>
+    {% endfor %}
+  </section>
+
+  {# Archive Footer #}
+  <footer class="double-rule-top" style="margin-top: 48px; text-align: center; padding: 24px 0 36px;">
+    <div style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; font-weight: 600;">
+      {{ labels.archive|upper or 'ARCHIVE' }}
+    </div>
+    <div style="font-family: var(--serif); font-size: 20px; color: var(--ink); margin-bottom: 8px; font-weight: 700;">
+      <a href="/{{ lang }}/archive/day/{{ archive_str or '' }}">{{ labels.archive or 'Archive' }}</a>
+      <span style="color: var(--muted-soft); margin: 0 8px;">·</span>
+      <a href="/{{ lang }}/archive/week/{{ archive_str or '' }}">{{ labels.this_week or 'This week' }}</a>
+      <span style="color: var(--muted-soft); margin: 0 8px;">/</span>
+      <a href="/{{ lang }}/archive/month/{{ archive_str or '' }}">{{ labels.this_month or 'This month' }}</a>
+      <span style="color: var(--muted-soft); margin: 0 8px;">/</span>
+      <a href="/{{ lang }}/archive/year/{{ archive_str or '' }}">{{ labels.this_year or 'This year' }}</a>
+    </div>
+    <div style="font-size: 12px; color: var(--muted);">
+      {{ cluster_count }} {% if lang == 'hi' %}क्लस्टर ट्रैक किए गए{% else %}clusters tracked{% endif %} · {{ published_count }} {% if lang == 'hi' %}आज प्रकाशित{% else %}published today{% endif %}
+    </div>
+  </footer>
+</main>
 {% endblock %}

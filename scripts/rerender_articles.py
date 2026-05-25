@@ -35,16 +35,30 @@ async def main() -> int:
                 .where(ArticleSource.article_id == art.id)
                 .order_by(ArticleSource.rank)
             )).all()
-            article_sources = [
-                {
+            seen_urls = set()
+            seen_titles = set()
+            seen_names = set()
+            article_sources = []
+            for s in srcs_rows:
+                url = s.url
+                title = s.title.strip().lower() if s.title else ""
+                name = s.source_name.strip() if s.source_name else ""
+                if url in seen_urls or (title and title in seen_titles) or (name and name in seen_names):
+                    continue
+                seen_urls.add(url)
+                if title:
+                    seen_titles.add(title)
+                if name:
+                    seen_names.add(name)
+                article_sources.append({
                     "raw_item_id": s.raw_item_id,
                     "name": s.source_name,
                     "url": s.url,
                     "title": s.title,
                     "published_at": s.published_at,
-                }
-                for s in srcs_rows
-            ]
+                })
+                if len(article_sources) >= 6:
+                    break
 
             html_en = _render_article(
                 art.id, "en",
@@ -55,7 +69,7 @@ async def main() -> int:
             )
             out_en = static_dir / "en" / "article" / f"{art.slug}.html"
             out_en.parent.mkdir(parents=True, exist_ok=True)
-            out_en.write_text(html_en)
+            out_en.write_text(html_en, encoding="utf-8")
             written += 1
 
             if art.title_hi and art.summary_hi:
@@ -68,7 +82,7 @@ async def main() -> int:
                 )
                 out_hi = static_dir / "hi" / "article" / f"{art.slug}.html"
                 out_hi.parent.mkdir(parents=True, exist_ok=True)
-                out_hi.write_text(html_hi)
+                out_hi.write_text(html_hi, encoding="utf-8")
                 written += 1
 
     log.info(f"Re-rendered {written} article files")
