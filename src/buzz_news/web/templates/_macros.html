@@ -99,13 +99,13 @@
 {% macro mast(lang, page, labels, date_str, articles=None) -%}{# date_str is used in right-hand side #}
 <header class="mast">
   <div class="mast__container">
-    {/* Logo */}
+    {# Logo #}
     <a href="/{{ lang }}/" class="mast__brand">
       Buzznews
       <div class="dot"></div>
     </a>
 
-    {/* Trending Ticker */}
+    {# Trending Ticker #}
     {% if articles %}
     <div class="headline-bar" aria-label="{{ labels.trending_now }}">
       <span class="headline-bar__label">{{ labels.trending_now|upper or 'TRENDING NOW' }}</span>
@@ -130,7 +130,7 @@
     </script>
     {% endif %}
 
-    {/* Metadata & Theme Toggler */}
+    {# Metadata & Theme Toggler #}
     <div class="mast__meta">
       <span>{{ date_str|upper }}</span>
       <div class="mast__lang">
