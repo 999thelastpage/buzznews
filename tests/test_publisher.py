@@ -71,7 +71,7 @@ def test_render_home_produces_tiles():
     )
     assert "<!doctype html" in html.lower()
     assert "col-span-12" in html
-    assert "card-huge" in html
+    assert "tile-lg" in html
     assert "col-span-12 md:col-span-6 lg:col-span-4" in html
     assert "Alpha headline" in html
     assert "Reuters" in html

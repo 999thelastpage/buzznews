@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import mast, lead_story, daily_brief, news_card, cat_c with context %}
+{% from "_macros.html" import mast, lead_story, daily_brief, news_card with context %}
 
 {% block body %}
 {{ mast(lang, 'home', labels, date_str, articles) }}
@@ -9,18 +9,18 @@
     {# Row 1: Lead (8x2) + Brief sidebar (4x2) #}
     {% if articles|length > 0 %}
       {% set lead_art = articles[0] %}
-      <div class="col-span-12 lg:col-span-8 lg:row-span-2 tile-lg {{ lead_art.card_class }} {{ cat_c(lead_art.category) }}">
+      <div class="col-span-12 lg:col-span-8 lg:row-span-2 tile-lg">
         {{ lead_story(lead_art, lang, labels) }}
       </div>
     {% endif %}
 
-    <div class="col-span-12 lg:col-span-4 lg:row-span-2 tile {{ cat_c('general') }}">
+    <div class="col-span-12 lg:col-span-4 lg:row-span-2 tile">
       {{ daily_brief(articles, lang, labels, date_str) }}
     </div>
 
     {# Subsequent articles dynamically positioned in grid #}
     {% for art in articles[1:] %}
-      <div class="{{ art.col_span }} {% if art.card_class == 'card-large' or art.card_class == 'card-huge' %}tile-lg{% else %}tile{% endif %} {{ cat_c(art.category) }}">
+      <div class="{{ art.col_span }} {% if art.card_class == 'card-large' or art.card_class == 'card-huge' %}tile-lg{% else %}tile{% endif %}">
         {{ news_card(art, lang, labels, is_large=(art.card_class == 'card-large' or art.card_class == 'card-huge')) }}
       </div>
     {% endfor %}

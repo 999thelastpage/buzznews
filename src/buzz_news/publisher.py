@@ -59,57 +59,51 @@ def _interleave_categories(articles: list[dict]) -> list[dict]:
 
 
 def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
-    """Rank-based tile sizing per the updated 15-article layout cycle.
-    Repeats a 15-article cycle:
-    - rank % 15 == 0: col_span="col-span-12 lg:col-span-8 lg:row-span-2", card_class="card-huge" (Lead)
-    - rank % 15 in (1, 2, 3): col_span="col-span-12 md:col-span-6 lg:col-span-4", card_class="" (Row 2 standard)
-    - rank % 15 == 4: col_span="col-span-12 lg:col-span-7", card_class="card-large" (Row 3 large)
-    - rank % 15 == 5: col_span="col-span-12 lg:col-span-5", card_class="card-large" (Row 3 large)
-    - rank % 15 == 6: col_span="col-span-12 lg:col-span-6 lg:row-span-2", card_class="card-large" (Row 4 bento large)
-    - rank % 15 in (7, 8, 9, 10): col_span="col-span-12 md:col-span-6 lg:col-span-3", card_class="" (Row 4 standard)
-    - rank % 15 == 11: col_span="col-span-12 lg:col-span-4", card_class="" (Row 5 standard)
-    - rank % 15 == 12: col_span="col-span-12 lg:col-span-8", card_class="card-large" (Row 5 large)
-    - rank % 15 in (13, 14): col_span="col-span-12 lg:col-span-6", card_class="card-large" (Row 6 large)
+    """Rank-based tile sizing matching the mockup grid layout.
+    Article 0 is the lead story (rendered separately in the template).
+    Articles 1+ use a repeating 14-position cycle:
+      Positions 0-2:  Row 2 — three 4-col standard cards
+      Position  3:    Row 3 — 7-col large card
+      Position  4:    Row 3 — 5-col large card
+      Position  5:    Row 4 — 6-col bento (row-span-2) large card
+      Positions 6-9:  Row 4 — four 3-col standard cards
+      Position  10:   Row 5 — 4-col standard card
+      Position  11:   Row 5 — 8-col large card
+      Positions 12-13: Row 6 — two 6-col large cards
     """
     result = []
     for rank, art in enumerate(articles):
-        mod_rank = rank % 15
-        if mod_rank == 0:
+        if rank == 0:
+            # Lead story — template handles grid placement directly
             art["col_span"] = "col-span-12 lg:col-span-8 lg:row-span-2"
             art["card_class"] = "card-huge"
-            art["tile_size"] = "col-span-12 lg:col-span-8 lg:row-span-2 card-huge"
-        elif mod_rank in (1, 2, 3):
-            art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-4"
-            art["card_class"] = ""
-            art["tile_size"] = "col-span-12 md:col-span-6 lg:col-span-4"
-        elif mod_rank == 4:
-            art["col_span"] = "col-span-12 lg:col-span-7"
-            art["card_class"] = "card-large"
-            art["tile_size"] = "col-span-12 lg:col-span-7 card-large"
-        elif mod_rank == 5:
-            art["col_span"] = "col-span-12 lg:col-span-5"
-            art["card_class"] = "card-large"
-            art["tile_size"] = "col-span-12 lg:col-span-5 card-large"
-        elif mod_rank == 6:
-            art["col_span"] = "col-span-12 lg:col-span-6 lg:row-span-2"
-            art["card_class"] = "card-large"
-            art["tile_size"] = "col-span-12 lg:col-span-6 lg:row-span-2 card-large"
-        elif mod_rank in (7, 8, 9, 10):
-            art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-3"
-            art["card_class"] = ""
-            art["tile_size"] = "col-span-12 md:col-span-6 lg:col-span-3"
-        elif mod_rank == 11:
-            art["col_span"] = "col-span-12 lg:col-span-4"
-            art["card_class"] = ""
-            art["tile_size"] = "col-span-12 lg:col-span-4"
-        elif mod_rank == 12:
-            art["col_span"] = "col-span-12 lg:col-span-8"
-            art["card_class"] = "card-large"
-            art["tile_size"] = "col-span-12 lg:col-span-8 card-large"
-        else:  # mod_rank in (13, 14)
-            art["col_span"] = "col-span-12 lg:col-span-6"
-            art["card_class"] = "card-large"
-            art["tile_size"] = "col-span-12 lg:col-span-6 card-large"
+        else:
+            # Repeating 14-position cycle for all non-lead articles
+            cycle = (rank - 1) % 14
+            if cycle in (0, 1, 2):
+                art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-4"
+                art["card_class"] = ""
+            elif cycle == 3:
+                art["col_span"] = "col-span-12 lg:col-span-7"
+                art["card_class"] = "card-large"
+            elif cycle == 4:
+                art["col_span"] = "col-span-12 lg:col-span-5"
+                art["card_class"] = "card-large"
+            elif cycle == 5:
+                art["col_span"] = "col-span-12 lg:col-span-6 lg:row-span-2"
+                art["card_class"] = "card-large"
+            elif cycle in (6, 7, 8, 9):
+                art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-3"
+                art["card_class"] = ""
+            elif cycle == 10:
+                art["col_span"] = "col-span-12 lg:col-span-4"
+                art["card_class"] = ""
+            elif cycle == 11:
+                art["col_span"] = "col-span-12 lg:col-span-8"
+                art["card_class"] = "card-large"
+            else:  # cycle in (12, 13)
+                art["col_span"] = "col-span-12 lg:col-span-6"
+                art["card_class"] = "card-large"
 
         art["is_hot"] = art.get("is_hot", False)
         result.append(art)
