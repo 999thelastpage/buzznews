@@ -12,6 +12,7 @@ from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source, C
 from buzz_news.writer import write_article
 from buzz_news.verifier import verify_en, verify_hi
 from buzz_news.imager import pick_image
+from buzz_news.embedder import embed_text
 
 settings = get_settings()
 log = logging.getLogger("buzz_news.publisher")
@@ -590,6 +591,15 @@ async def publish_top_n(n: int = 10) -> int:
                 if len(article_sources) >= 6:
                     break
 
+        # Embed the article for hybrid search. Failure here must not block
+        # the publish — the backfill script can fill in missing embeddings.
+        embedding = None
+        try:
+            text_for_embed = f"{draft.title_en}\n{draft.body_en or ''}"
+            embedding = embed_text(text_for_embed, "RETRIEVAL_DOCUMENT").tolist()
+        except Exception as e:
+            log.warning(f"embed_text failed for cluster {cluster.id}: {e}")
+
         article_record = {
             "cluster_id": cluster.id,
             "slug": slug,
@@ -605,6 +615,7 @@ async def publish_top_n(n: int = 10) -> int:
             "updated_at": datetime.now(timezone.utc),
             "verifier_passed": verifier_passed,
             "verifier_notes": verifier_notes,
+            "embedding": embedding,
         }
 
         async with async_session_factory() as session:

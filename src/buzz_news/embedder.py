@@ -18,9 +18,9 @@ EMBED_CACHE_SIZE = 2000
 def _cached_embedding(text_hash: str, text: str, task_type: str) -> np.ndarray:
     from google import genai
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    config = {"task_type": task_type}
-    if task_type == "RETRIEVAL_DOCUMENT":
-        config["output_dimensionality"] = 768
+    # output_dimensionality must be set for ALL task types or query/document
+    # vectors come back different shapes (3072 vs 768) and break comparison.
+    config = {"task_type": task_type, "output_dimensionality": 768}
     response = client.models.embed_content(
         model=settings.GEMINI_MODEL_EMBED,
         contents=[text[:8000]],

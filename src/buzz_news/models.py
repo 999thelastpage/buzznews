@@ -1,8 +1,11 @@
 from datetime import datetime
+from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CHAR,
     DateTime,
+    FetchedValue,
     ForeignKey,
     Index,
     Integer,
@@ -10,8 +13,9 @@ from sqlalchemy import (
     Numeric,
     Text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from pgvector.sqlalchemy import Vector
 import enum
 
 
@@ -134,6 +138,13 @@ class Article(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     verifier_passed: Mapped[bool] = mapped_column(Boolean, default=False)
     verifier_notes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
+    # search_vector is a STORED GENERATED column maintained by Postgres; we
+    # never write to it. server_default + FetchedValue tells SQLAlchemy to
+    # leave it alone on INSERT/UPDATE.
+    search_vector: Mapped[Any | None] = mapped_column(
+        TSVECTOR, nullable=True, server_default=FetchedValue(),
+    )
 
 
 class ArticleSource(Base):
@@ -157,6 +168,15 @@ class Rollup(Base):
     category: Mapped[str | None] = mapped_column(Text, nullable=True)
     region: Mapped[str | None] = mapped_column(Text, nullable=True)
     article_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class SearchQueryCache(Base):
+    __tablename__ = "search_query_cache"
+
+    query_hash: Mapped[str] = mapped_column(CHAR(40), primary_key=True)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
