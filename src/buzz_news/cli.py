@@ -104,6 +104,8 @@ async def cmd_deploy_static(args) -> int:
         ("robots.txt", "robots.txt"),
         ("privacy.html", "en/privacy.html"),
         ("hi/privacy.html", "hi/privacy.html"),
+        ("js/ticker.js", "js/ticker.js"),
+        ("js/theme.js", "js/theme.js"),
     ]
     copied = 0
     for src_rel, dst_rel in pairs:

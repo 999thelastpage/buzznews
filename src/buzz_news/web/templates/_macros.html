@@ -116,18 +116,7 @@
         {% endfor %}
       </div>
     </div>
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const items = document.querySelectorAll(".headline-bar__item");
-        if (items.length <= 1) return;
-        let cur = 0;
-        setInterval(() => {
-          items[cur].classList.remove("is-active");
-          cur = (cur + 1) % items.length;
-          items[cur].classList.add("is-active");
-        }, 5000);
-      });
-    </script>
+    <script src="/js/ticker.js" defer></script>
     {% endif %}
 
     {# Metadata & Theme Toggler #}
@@ -142,43 +131,7 @@
         <svg class="sun-icon" style="display: none; width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg class="moon-icon" style="display: none; width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
       </button>
-      <script>
-        document.addEventListener("DOMContentLoaded", () => {
-          const toggleBtn = document.getElementById("theme-toggle");
-          if (!toggleBtn) return;
-          const sunIcon = toggleBtn.querySelector(".sun-icon");
-          const moonIcon = toggleBtn.querySelector(".moon-icon");
-
-          function updateThemeIcons(isDark) {
-            if (isDark) {
-              sunIcon.style.display = "block";
-              moonIcon.style.display = "none";
-            } else {
-              sunIcon.style.display = "none";
-              moonIcon.style.display = "block";
-            }
-          }
-
-          let currentTheme = localStorage.getItem("theme");
-          if (!currentTheme) {
-            currentTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-          }
-
-          if (currentTheme === "dark") {
-            document.documentElement.classList.add("dark");
-            updateThemeIcons(true);
-          } else {
-            document.documentElement.classList.remove("dark");
-            updateThemeIcons(false);
-          }
-
-          toggleBtn.addEventListener("click", () => {
-            const isDark = document.documentElement.classList.toggle("dark");
-            localStorage.setItem("theme", isDark ? "dark" : "light");
-            updateThemeIcons(isDark);
-          });
-        });
-      </script>
+      <script src="/js/theme.js" defer></script>
     </div>
   </div>
 </header>
