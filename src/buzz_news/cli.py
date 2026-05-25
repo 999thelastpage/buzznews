@@ -235,38 +235,27 @@ async def cmd_republish_today(args) -> int:
     return 0
 
 
-async def cmd_rollup(args) -> int:
-    from datetime import datetime as dt, timezone as tz
-    from buzz_news.rollups import build_daily, build_weekly, build_monthly, build_yearly
+async def cmd_today_archive(args) -> int:
+    from buzz_news.publisher import render_today_pages
+    log.info("Building today archive...")
+    n = await render_today_pages()
+    log.info(f"Wrote {n} today archive file(s)")
+    return 0
 
-    if not args.period or not args.date:
-        log.error("--period and --date are required")
-        return 1
 
-    period = args.period
-    date_str = args.date
+async def cmd_monthly_archive(args) -> int:
+    from buzz_news.rollups import build_monthly
+    from buzz_news.publisher import IST
 
-    if period == "day":
-        date = dt.strptime(date_str, "%Y-%m-%d").replace(tzinfo=tz.utc)
-        log.info(f"Building daily rollup for {date_str}")
-        await build_daily(date)
-    elif period == "week":
-        date = dt.strptime(date_str, "%Y-%m-%d").replace(tzinfo=tz.utc)
-        log.info(f"Building weekly rollup for week starting {date_str}")
-        await build_weekly(date)
-    elif period == "month":
-        parts = date_str.split("-")
+    if args.month:
+        parts = args.month.split("-")
         year, month = int(parts[0]), int(parts[1])
-        log.info(f"Building monthly rollup for {year}-{month:02d}")
-        await build_monthly(year, month)
-    elif period == "year":
-        year = int(date_str)
-        log.info(f"Building yearly rollup for {year}")
-        await build_yearly(year)
     else:
-        log.error(f"Unknown period: {period}")
-        return 1
+        now_ist = datetime.now(timezone.utc).astimezone(IST)
+        year, month = now_ist.year, now_ist.month
 
+    log.info(f"Building monthly archive for {year}-{month:02d} IST...")
+    await build_monthly(year, month)
     return 0
 
 
@@ -307,14 +296,6 @@ async def cmd_retention_cleanup(args) -> int:
                 images_deleted += 1
 
     log.info(f"Retention cleanup: {raw_deleted} raw_items, {scores_deleted} cluster_scores, {buzz_deleted} buzz_events, {images_deleted} image dirs deleted")
-    return 0
-
-
-async def cmd_backfill_rollups(args) -> int:
-    from buzz_news.rollups import backfill_rollups
-    log.info(f"Backfilling rollups for last {args.days} days...")
-    await backfill_rollups(args.days)
-    log.info("Backfill complete")
     return 0
 
 
@@ -384,9 +365,9 @@ COMMANDS = {
     "write-once": cmd_write_once,
     "publish-once": cmd_publish_once,
     "republish-today": cmd_republish_today,
-    "rollup": cmd_rollup,
+    "today-archive": cmd_today_archive,
+    "monthly-archive": cmd_monthly_archive,
     "retention-cleanup": cmd_retention_cleanup,
-    "backfill-rollups": cmd_backfill_rollups,
     "split-cluster": cmd_split_cluster,
     "run-worker": cmd_run_worker,
     "run-web": cmd_run_web,
@@ -396,8 +377,7 @@ COMMANDS = {
 def main() -> int:
     parser = argparse.ArgumentParser(prog="python -m buzz_news")
     parser.add_argument("command", choices=list(COMMANDS.keys()))
-    parser.add_argument("--period", choices=["day", "week", "month", "year"])
-    parser.add_argument("--date")
+    parser.add_argument("--month", help="YYYY-MM for monthly-archive (defaults to current IST month)")
     parser.add_argument("--items")
     parser.add_argument("cluster_id", nargs="?", type=int)
     parser.add_argument("--days", type=int, default=7)

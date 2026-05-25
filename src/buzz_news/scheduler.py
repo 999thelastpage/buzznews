@@ -84,27 +84,18 @@ def build_scheduler() -> AsyncIOScheduler:
     )
 
     scheduler.add_job(
-        _wrap("daily_rollup", _run_daily_rollup),
-        trigger=CronTrigger(hour=0, minute=5, timezone="Asia/Kolkata"),
-        id="daily_rollup",
+        _wrap("monthly_archive", _run_monthly_archive),
+        trigger=IntervalTrigger(hours=1),
+        id="monthly_archive",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
 
     scheduler.add_job(
-        _wrap("weekly_rollup", _run_weekly_rollup),
-        trigger=CronTrigger(hour=0, minute=15, day_of_week="mon", timezone="Asia/Kolkata"),
-        id="weekly_rollup",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-
-    scheduler.add_job(
-        _wrap("monthly_rollup", _run_monthly_rollup),
+        _wrap("previous_month_finalize", _run_previous_month_finalize),
         trigger=CronTrigger(hour=0, minute=30, day=1, timezone="Asia/Kolkata"),
-        id="monthly_rollup",
+        id="previous_month_finalize",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
@@ -181,27 +172,26 @@ async def _run_publish():
     log.info(f"[scheduler] published {n} articles")
 
 
-async def _run_daily_rollup():
-    from buzz_news.rollups import build_daily
-    today = datetime.now(timezone.utc).date()
-    await build_daily(today)
-    log.info(f"[scheduler] daily rollup built for {today}")
-
-
-async def _run_weekly_rollup():
-    from buzz_news.rollups import build_weekly
-    from datetime import timedelta
-    today = datetime.now(timezone.utc).date()
-    monday = today - timedelta(days=today.weekday())
-    await build_weekly(monday)
-    log.info(f"[scheduler] weekly rollup built for week of {monday}")
-
-
-async def _run_monthly_rollup():
+async def _run_monthly_archive():
+    """Rebuild the current IST-month archive page every hour so it grows
+    incrementally as articles publish through the day."""
     from buzz_news.rollups import build_monthly
-    now = datetime.now(timezone.utc)
-    await build_monthly(now.year, now.month)
-    log.info(f"[scheduler] monthly rollup built for {now.year}-{now.month:02d}")
+    from buzz_news.publisher import IST
+    now_ist = datetime.now(timezone.utc).astimezone(IST)
+    await build_monthly(now_ist.year, now_ist.month)
+    log.info(f"[scheduler] monthly archive rebuilt for {now_ist.year}-{now_ist.month:02d} IST")
+
+
+async def _run_previous_month_finalize():
+    """On the 1st of each IST month, rebuild the previous month one final time
+    so any late-arriving articles get included before that page is left frozen."""
+    from buzz_news.rollups import build_monthly
+    from buzz_news.publisher import IST
+    now_ist = datetime.now(timezone.utc).astimezone(IST)
+    prev_year = now_ist.year if now_ist.month > 1 else now_ist.year - 1
+    prev_month = now_ist.month - 1 if now_ist.month > 1 else 12
+    await build_monthly(prev_year, prev_month)
+    log.info(f"[scheduler] previous month archive finalized for {prev_year}-{prev_month:02d} IST")
 
 
 async def _run_retention():
