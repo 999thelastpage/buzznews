@@ -50,6 +50,29 @@ def _parse_json_tolerant(raw: str) -> dict:
         return json.loads(repair_json(raw))
 
 
+def _call_deepseek(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> dict:
+    import httpx
+    if not settings.DEEPSEEK_API_KEY:
+        raise RuntimeError("DEEPSEEK_API_KEY not configured")
+    r = httpx.post(
+        f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": settings.DEEPSEEK_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        },
+        timeout=60.0,
+    )
+    r.raise_for_status()
+    return _parse_json_tolerant(r.json()["choices"][0]["message"]["content"])
+
+
 def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> dict:
     from google import genai
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -161,16 +184,21 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
         prompt = prompt_template.format(sources_block=sources_block)
         result_json = None
         try:
-            result_json = _call_gemini(prompt)
-            log.info(f"LLM_USAGE provider=gemini model={settings.GEMINI_MODEL_TEXT} cluster_id={cluster_id} lang={lang}")
+            result_json = _call_deepseek(prompt)
+            log.info(f"LLM_USAGE provider=deepseek model={settings.DEEPSEEK_MODEL} cluster_id={cluster_id} lang={lang}")
         except Exception as e:
-            log.warning(f"Gemini call failed for cluster {cluster_id} lang={lang}: {e}, trying Anthropic")
+            log.warning(f"DeepSeek call failed for cluster {cluster_id} lang={lang}: {e}, trying Gemini")
             try:
-                result_json = _call_anthropic(prompt)
-                log.info(f"LLM_USAGE provider=anthropic model={settings.ANTHROPIC_MODEL} cluster_id={cluster_id} lang={lang}")
+                result_json = _call_gemini(prompt)
+                log.info(f"LLM_USAGE provider=gemini model={settings.GEMINI_MODEL_TEXT} cluster_id={cluster_id} lang={lang}")
             except Exception as e2:
-                log.error(f"Anthropic fallback also failed for cluster {cluster_id} lang={lang}: {e2}")
-                continue
+                log.warning(f"Gemini call failed for cluster {cluster_id} lang={lang}: {e2}, trying Anthropic")
+                try:
+                    result_json = _call_anthropic(prompt)
+                    log.info(f"LLM_USAGE provider=anthropic model={settings.ANTHROPIC_MODEL} cluster_id={cluster_id} lang={lang}")
+                except Exception as e3:
+                    log.error(f"All LLM providers failed for cluster {cluster_id} lang={lang}: {e3}")
+                    continue
 
         if result_json:
             title = result_json.get("title", "")
