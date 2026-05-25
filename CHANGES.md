@@ -96,3 +96,47 @@ tests\test_web.py ........                                               [ 94%]
 tests\test_writer.py ....                                                [100%]
 ======================== 72 passed, 1 warning in 3.60s ========================
 ```
+
+---
+
+## 4. Grid & Theme Fixes (2026-05-25, session 2)
+
+### A. Jinja2 Comment Syntax Fix (Masthead)
+- **Problem**: Three JSX-style comments (`{/* Logo */}`, `{/* Trending Ticker */}`, `{/* Metadata & Theme Toggler */}`) were used in `_macros.html`. Jinja2 doesn't recognize `{/* */}` — it rendered them as literal text into the HTML, appearing as broken code at the top of every page (especially visible in light mode on a white background).
+- **Fix**: Replaced with proper Jinja2 comments (`{# Logo #}`, `{# Trending Ticker #}`, `{# Metadata & Theme Toggler #}`).
+- **Files**: `_macros.html` (lines 102, 108, 133)
+
+### B. Transparent Tile Backgrounds (Removing Category Background Colors)
+- **Problem**: The `{{ cat_c(art.category) }}` call in `home.html` applied classes like `s-intl`, `s-pol`, `s-sport` to tile wrapper `<div>`s. These `.s-*` classes set `background-color` to the full category hex, producing bright-colored tile backgrounds (blue, purple, orange, etc.) that didn't match the mockup's clean transparent-tile aesthetic.
+- **Fix**: Removed `{{ cat_c(art.category) }}` from all three wrapper div types:
+  - Lead story wrapper (`col-span-12 lg:col-span-8 lg:row-span-2 tile-lg`)
+  - Daily Brief sidebar (`col-span-12 lg:col-span-4 lg:row-span-2 tile`)
+  - Article loop cards (`{{ art.col_span }} tile / tile-lg`)
+- Category colors now only apply to **text labels** (via `k-*` classes inside the card macros), not the tile containers.
+- **Files**: `home.html` (lines 2, 12, 17, 23)
+
+### C. 14-Position Grid Cycle (Fixing Grid Alignment for Non-Lead Articles)
+- **Problem**: The old `_compute_tile_sizes` used a 15-article repeating cycle (`rank % 15`). Article[0] (the lead story) is rendered separately in the template with hardcoded grid classes. When article 15 arrived, `15 % 15 = 0` gave it lead-sized layout classes (`col-span-8`, `row-span-2`), breaking the grid with an oversized tile in the middle of the page.
+- **Fix**: Article 0 keeps its lead layout (used by the template's hardcoded section). All articles at rank 1+ now use a **14-position repeating cycle** (`(rank - 1) % 14`), which never produces another lead-sized tile:
+
+  | Cycle Position | Grid Classes | Card Class |
+  |---|---|---|
+  | 0, 1, 2 | `col-span-12 md:col-span-6 lg:col-span-4` | standard |
+  | 3 | `col-span-12 lg:col-span-7` | card-large |
+  | 4 | `col-span-12 lg:col-span-5` | card-large |
+  | 5 | `col-span-12 lg:col-span-6 lg:row-span-2` | card-large (bento) |
+  | 6, 7, 8, 9 | `col-span-12 md:col-span-6 lg:col-span-3` | standard |
+  | 10 | `col-span-12 lg:col-span-4` | standard |
+  | 11 | `col-span-12 lg:col-span-8` | card-large |
+  | 12, 13 | `col-span-12 lg:col-span-6` | card-large |
+
+- **Files**: `publisher.py` (function `_compute_tile_sizes`)
+
+### D. Homepage Article Limit (15 → Complete Grid Cycle)
+- **Problem**: The default `limit=22` in `render_home_pages` produced 1 lead + 21 loop articles. Since the 14-position cycle doesn't divide 21 evenly (21 = 14 + 7), the second cycle started but didn't complete — leaving an orphaned 3-col card at the bottom with no siblings in its row.
+- **Fix**: Changed `limit` from 22 to **15** (1 lead + 14 cards = exactly one complete grid cycle). The page now ends cleanly on a full 12-column row.
+- **Files**: `publisher.py` (function signature `render_home_pages(limit: int = 15)`)
+
+### E. Test Update
+- Updated `test_render_home_produces_tiles` to assert `tile-lg` instead of `card-huge` (since the lead wrapper div no longer includes `{{ lead_art.card_class }}`).
+- **Files**: `tests/test_publisher.py`

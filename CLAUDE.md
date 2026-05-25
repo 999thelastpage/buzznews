@@ -78,6 +78,12 @@ Concretely, you can develop and test all of Phases 0–7 with placeholder values
     - anything surprising or worth a second look
   ```
 
+## Template & grid architecture (2026-05-25)
+
+- **Jinja2 comments only** — never use JSX `{/* */}` in `.html` templates. Jinja2 treats it as literal text and renders it into the page. Use `{# comment #}`.
+- **Tile wrappers are transparent** — do NOT apply `.s-intl`, `.s-pol`, etc. (category background-color classes) to grid tile `<div>` wrappers. Per the mockup, tiles have `bg-transparent` with subtle borders. Category colors belong on **text labels only** (via `k-*` classes inside card macros). If you see `{{ cat_c(art.category) }}` on a tile wrapper, remove it.
+- **Homepage grid cycle is 14 positions** — article 0 is the lead (rendered separately in `home.html` with hardcoded classes). Articles 1+ use `_compute_tile_sizes` with `(rank - 1) % 14`. The old `rank % 15` produced a duplicate lead layout at article 15. Default limit is **15** (1 lead + 14 cards = one complete cycle) to avoid orphaned partial rows.
+
 ## When you're unsure
 
 - About a library choice → re-read §1, then ask.
