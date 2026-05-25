@@ -4,7 +4,7 @@ Canonical spec: `PROJECT_PLAN.md` (~1450 lines). Read it before any tool call. T
 
 ## Hard constraints (would an agent violate these?)
 
-- **No local ML.** Embeddings → Gemini `text-embedding-004` only. No sentence-transformers, PyTorch, HDBSCAN, scikit-learn, spaCy. This is a 1.9 GB RAM constraint.
+- **No local ML.** Embeddings → Gemini `gemini-embedding-001` (768-dim via `output_dimensionality`). No sentence-transformers, PyTorch, HDBSCAN, scikit-learn, spaCy. This is a 1.9 GB RAM constraint.
 - **No Docker on the VPS.** Bare metal + systemd only.
 - **No Node.js in the BuzzNews runtime path.** OpenClaw is the only Node process and it's pre-installed.
 - **No client-side React.** HTMX + Alpine.js + Jinja2 only.
@@ -38,7 +38,7 @@ src/buzz_news/
   sources/                # adapters: rss.py, reddit.py, hn.py, gdelt.py, tavily.py
   fetcher.py             # orchestrates one fetch cycle
   normalizer.py           # trafilatura + OpenClaw browser fallback
-  embedder.py             # Gemini text-embedding-004
+  embedder.py             # Gemini gemini-embedding-001 (was text-embedding-004 until Google removed it 2026-05-25)
   minhash.py              # datasketch MinHash LSH
   clusterer.py            # pgvector ANN + sanity sweep
   scorer.py               # trending algorithm (§8.1)

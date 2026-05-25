@@ -12,7 +12,7 @@ You are implementing BuzzNews on the VPS this file lives on. The canonical speci
 
 ## Hard "no"s (these trip up fresh models)
 
-- **No local ML models.** Embeddings go to **Gemini `text-embedding-004`** over the API. No `sentence-transformers`, no PyTorch, no HDBSCAN, no scikit-learn, no spaCy. This is a 1.9 GB RAM constraint, not a preference. If you find yourself reaching for any of these, you're solving the wrong problem.
+- **No local ML models.** Embeddings go to **Gemini `gemini-embedding-001`** over the API (768-dim via `output_dimensionality`). No `sentence-transformers`, no PyTorch, no HDBSCAN, no scikit-learn, no spaCy. This is a 1.9 GB RAM constraint, not a preference. If you find yourself reaching for any of these, you're solving the wrong problem.
 - **No Docker on the VPS.** Bare metal + systemd. (Local dev is fine.)
 - **No Node.js in the BuzzNews runtime path.** OpenClaw is the only Node process and it's already running.
 - **No client-side React.** HTMX + Alpine.js, server-rendered Jinja2.
@@ -25,7 +25,7 @@ Original spec called for Gemini 2.5 Flash as primary. That has been **superseded
 - **Primary**: DeepSeek `deepseek-v4-flash` via OpenAI-compat endpoint `https://api.deepseek.com/v1/chat/completions` (called via `httpx`, no extra SDK).
 - **Fallback 1**: Gemini `gemini-2.5-flash` — currently 429-ing because the AI Studio project spend cap is hit. Until the cap is raised at https://ai.studio/spend, every call straight-through falls to Anthropic.
 - **Fallback 2**: Anthropic Claude Haiku 4.5.
-- Embeddings are separate and still on Gemini `text-embedding-004` (free tier) via `embedder.py`. **Do not** swap the embed model to `gemini-embedding-2` — that's paid per-token and burns budget fast.
+- Embeddings are on Gemini **`gemini-embedding-001`** (paid GA, ~$0.15/1M input tokens) via `embedder.py`. `text-embedding-004` was the original free-tier choice but Google **removed it from the API entirely on 2026-05-25** (404 NOT_FOUND on every batch). Do **not** swap to `gemini-embedding-2` — same family but more expensive. The embedder passes `output_dimensionality=768` to keep the existing pgvector column shape.
 
 `.env` keys: `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL=deepseek-v4-flash`, `DEEPSEEK_BASE_URL=https://api.deepseek.com`.
 

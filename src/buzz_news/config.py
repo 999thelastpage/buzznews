@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL_TEXT: str = "gemini-2.0-flash"
-    GEMINI_MODEL_EMBED: str = "text-embedding-004"
+    GEMINI_MODEL_EMBED: str = "gemini-embedding-001"
     EMBED_DIM: int = 768
 
     ANTHROPIC_API_KEY: str = ""
