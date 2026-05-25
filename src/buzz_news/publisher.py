@@ -87,7 +87,7 @@ def _render(template_name: str, **ctx) -> str:
     return tpl.render(**ctx)
 
 
-def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, today_str: str) -> str:
+def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, archive_str: str) -> str:
     articles = _compute_tile_sizes(articles)
     articles = _interleave_categories(articles)
     labels = _get_labels(lang)
@@ -98,7 +98,7 @@ def _render_home(articles: list[dict], lang: str, cluster_count: int, published_
         articles=articles,
         labels=labels,
         date_str=date_str,
-        today_str=today_str,
+        archive_str=archive_str,
         cluster_count=cluster_count,
         published_count=published_count,
     )
@@ -232,7 +232,6 @@ async def render_home_pages(limit: int = 22) -> int:
         published_count = published_count_row.scalar() or 0
 
     now = datetime.now(timezone.utc)
-    today_str = now.strftime("%Y-%m-%d")
     static_dir = Path(settings.STATIC_DIR)
     written = 0
 
@@ -240,13 +239,19 @@ async def render_home_pages(limit: int = 22) -> int:
         articles = [a for a in (_to_dict(r, lang) for r in rows) if a is not None]
         if not articles:
             continue
+        # The archive tile links to the most recently produced daily rollup.
+        # Today's rollup doesn't exist until the cron fires at midnight IST,
+        # so linking to today's date 404s for most of the day.
+        archive_dir = static_dir / lang / "archive" / "day"
+        archive_files = sorted(archive_dir.glob("*.html"), reverse=True) if archive_dir.exists() else []
+        archive_str = archive_files[0].stem if archive_files else ""
         html = _render_home(
             articles=articles,
             lang=lang,
             cluster_count=cluster_count,
             published_count=published_count,
             date_str=_format_date(now, lang),
-            today_str=today_str,
+            archive_str=archive_str,
         )
         out_path = static_dir / lang / "index.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)

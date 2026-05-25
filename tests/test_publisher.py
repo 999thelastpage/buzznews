@@ -54,7 +54,7 @@ def test_render_home_produces_tiles():
         cluster_count=10,
         published_count=2,
         date_str="25 May 2026",
-        today_str="2026-05-25",
+        archive_str="2026-05-24",
     )
     assert "<!doctype html" in html.lower()
     assert "tile--2x2" in html

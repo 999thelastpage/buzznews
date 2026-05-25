@@ -8,8 +8,9 @@
   {% for art in articles %}
   {{ tile(art, art.tile_size or '1x1', lang, art.is_hot, labels) }}
   {% endfor %}
-  {# Archive link tile #}
-  <a href="/{{ lang }}/archive/day/{{ today_str }}" class="tile tile--2x1 s-gen">
+  {% if archive_str %}
+  {# Archive link tile — points to most recent completed daily rollup #}
+  <a href="/{{ lang }}/archive/day/{{ archive_str }}" class="tile tile--2x1 s-gen">
     <div class="tile__cat">
       <span class="k-gen">{{ labels.archive }}</span>
       <span class="tile__cat-time">→</span>
@@ -17,10 +18,11 @@
     <h2 class="tile__title">{{ labels.archive }} · {{ labels.this_week }} / {{ labels.this_month }} / {{ labels.this_year }}</h2>
     <div class="tile__src">{{ cluster_count }} clusters tracked · {{ published_count }} published</div>
   </a>
+  {% endif %}
 </section>
 
 <footer class="foot">
-  <a href="/{{ lang }}/archive/day/{{ today_str }}">{{ labels.archive }}</a>
+  {% if archive_str %}<a href="/{{ lang }}/archive/day/{{ archive_str }}">{{ labels.archive }}</a>{% endif %}
   <a href="/{{ lang }}/privacy">Privacy</a>
   <span style="margin-left:auto">Made in Hyderabad</span>
 </footer>
