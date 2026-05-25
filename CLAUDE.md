@@ -18,6 +18,17 @@ You are implementing BuzzNews on the VPS this file lives on. The canonical speci
 - **No client-side React.** HTMX + Alpine.js, server-rendered Jinja2.
 - **No paid image generation, no hosting of news-source images.**
 
+## Writer LLM chain (current, 2026-05-25)
+
+Original spec called for Gemini 2.5 Flash as primary. That has been **superseded**: the live chain in `writer.py:write_article` is now **DeepSeek → Gemini → Anthropic**.
+
+- **Primary**: DeepSeek `deepseek-v4-flash` via OpenAI-compat endpoint `https://api.deepseek.com/v1/chat/completions` (called via `httpx`, no extra SDK).
+- **Fallback 1**: Gemini `gemini-2.5-flash` — currently 429-ing because the AI Studio project spend cap is hit. Until the cap is raised at https://ai.studio/spend, every call straight-through falls to Anthropic.
+- **Fallback 2**: Anthropic Claude Haiku 4.5.
+- Embeddings are separate and still on Gemini `text-embedding-004` (free tier) via `embedder.py`. **Do not** swap the embed model to `gemini-embedding-2` — that's paid per-token and burns budget fast.
+
+`.env` keys: `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL=deepseek-v4-flash`, `DEEPSEEK_BASE_URL=https://api.deepseek.com`.
+
 ## Host facts (verify, don't assume)
 
 - Tencent Lighthouse VPS, Ubuntu 24.04, **1.9 GB RAM, 2 vCPU, 40 GB disk, 10 GB swap**.

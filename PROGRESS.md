@@ -447,4 +447,112 @@ a64071a publisher: rank-based tile sizing + drop verifier filter from home
 777a0d1 phase-7-9: rollups + scheduler + design + restoration
 ```
 
+## Session — 2026-05-25 afternoon (post-launch fixes + DeepSeek)
+
+Working from the live deploy at https://slow.myvnc.com/. Sequence of fixes in
+order, each its own commit:
+
+### 1. Article HI/EN translation link — `3484ffe`
+
+Symptom: the `HI` link on article pages opened a "download this article"
+prompt (Caddy interpreted the path as a file). Root cause: `mast` macro in
+`_macros.html` was emitting `/hi/article` (no slug) because `article.html`
+passed the literal string `'article'` as the page key. Fix: macro now expects
+the full per-language path suffix; article template now passes
+`'article/' ~ article.slug`. `_render_article` got a `slug` arg so the
+template context has `article.slug` available. `publish_top_n` threads the
+slug through both EN and HI call sites. Added
+`scripts/rerender_articles.py` to re-apply template fixes to already-published
+articles without re-running the LLM.
+
+### 2. Gemini bill investigation — `.env` change (not committed: secret)
+
+User flagged rapidly climbing Gemini bill. Audit found two distinct
+consumers: `embedder.py` (every fetched item gets a 768-d vector) and
+`writer.py` (each EN+HI body). The `.env` had `GEMINI_MODEL_EMBED=gemini-embedding-2`
+— paid model — even though `CLAUDE.md` and `config.py` both pin the free
+`text-embedding-004`. Swapped back to `text-embedding-004`, chowned `.env`
+back to `ubuntu:ubuntu`, restarted worker. Existing 768-d vectors stay valid
+(same dimensionality, both normalized). Writer model is `gemini-2.5-flash`
+which matches spec — unchanged at that point.
+
+### 3. Site stopped updating — fixed (no code change)
+
+After 03:16 UTC the home page stopped refreshing. Diagnosed: `publish_top_n`
+was crashing for ~3 hours with `PermissionError: '/var/lib/buzz-news/static/en/article/...html'`
+— the worker (running as `ubuntu`) couldn't overwrite files owned by `root`.
+Earlier `sudo`-run scripts had left root-owned files behind. Fix:
+`sudo chown -R ubuntu:ubuntu /var/lib/buzz-news/static`. Then ran
+`publish-once` to catch up — 10 fresh articles, both home pages re-rendered.
+
+Separate finding during this dig: Gemini text model is now 429-ing on the
+project spend cap (https://ai.studio/spend). Every write call falls back to
+Claude Haiku, which succeeds. Articles publish, just on Anthropic's dime.
+
+### 4. Archive tile 404 — `ab1ff6d`
+
+The home-page archive tile linked to today's date, but the daily rollup cron
+only fires at midnight IST and produces the *previous* day's archive — so the
+link always 404'd during the day. Fix: `render_home_pages` now scans
+`<STATIC_DIR>/{lang}/archive/day/*.html` and links to the most recent file
+found. Tile is hidden entirely if no archive exists yet. Renamed `today_str`
+→ `archive_str` in the publisher and `home.html` template.
+
+### 5. Articles truncated mid-sentence — `b4d96e7`
+
+User reported "all articles are abruptly ending and none of them are complete".
+Investigated: every article in the DB had ~70 English words ending mid-word
+(e.g. "...had i"). Direct API tests showed Anthropic returning full bodies
+fine. Root cause: `publisher.py:343` did `summary_en=draft.body_en[:500]` —
+storing only the first 500 chars of the body as a "teaser" column. My earlier
+`rerender_articles.py` (from fix #1) read `summary_en` as the body and
+re-rendered all articles as 70-word stubs. The column name is misleading —
+it's actually the full body for re-rendering purposes; rollups already slice
+to 200 chars at template render time. Fix: drop the `[:500]` cap. Added
+`scripts/rewrite_articles.py` to backfill the 67 existing articles via the
+LLM — ran successfully, average body went from 500 chars → 1072 chars. The
+one remaining 483-char article (id=48) is a legitimate "Unable to summarize:
+source content inaccessible" LLM response and is filtered out from home by
+the garbage-phrase filter.
+
+### 6. DeepSeek as primary writer — `cd55712`
+
+User requested DeepSeek-V4-Flash as primary writer with Gemini → Anthropic
+as fallbacks. Wired via `httpx` to DeepSeek's OpenAI-compatible endpoint
+(`https://api.deepseek.com/v1/chat/completions`) — no new SDK dep. New
+fallback chain in `write_article`: `_call_deepseek` → `_call_gemini` →
+`_call_anthropic`. Three new settings: `DEEPSEEK_API_KEY`,
+`DEEPSEEK_MODEL=deepseek-v4-flash` (lowercase — DeepSeek's API rejects mixed
+case), `DEEPSEEK_BASE_URL=https://api.deepseek.com`. Live verification: a
+`publish-once` after the change made 14/14 calls to DeepSeek with zero
+fallbacks; one sample article was 118 words with a clean ending.
+
+### Commits this session
+
+```
+cd55712 writer: add DeepSeek as primary LLM, demote Gemini and Anthropic
+b4d96e7 publisher: persist full body, not truncated 500-char teaser
+ab1ff6d home: point archive tile at most recent existing rollup
+3484ffe article: fix HI/EN swap link to include slug
+```
+
+### Open items for next session
+
+- **Gemini spending cap** — capped at AI Studio. Either raise the cap or leave
+  Gemini as a dormant fallback that always 429s and falls through to Anthropic.
+  Not a hard block since DeepSeek is now primary.
+- **Image gate** — still deferred (see memory `project_image_gate_deferred.md`).
+  Only ~3/68 articles have hero images. Decide whether to drop the
+  `verifier_passed=True` gate in `imager.pick_image()`.
+- **One-shot maintenance scripts** in `scripts/`:
+  - `rerender_articles.py` — re-renders HTML from DB (no LLM cost). Safe to
+    re-run any time after a template change.
+  - `rewrite_articles.py` — re-generates bodies via the LLM (~$0.20 in
+    Anthropic credit for 68 articles; cheaper now via DeepSeek). Run when
+    you change the writer prompt or after a writer-side bug like
+    truncation.
+- **API key exposure**: the DeepSeek key was pasted into the conversation
+  transcript. It's in `.env` (chmod 600, not in git) but consider rotating it
+  via the DeepSeek console.
+
 
