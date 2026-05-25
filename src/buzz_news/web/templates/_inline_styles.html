@@ -547,16 +547,12 @@ details[open] .source-cluster__chevron {
 
 /* Article Detail Page specific adjustments */
 .article { padding: 0 var(--rail); }
-.article__head { background: #0E0B09; color: #F4F0E8; margin: 12px 0 0; padding: 22px 18px 24px; position: relative; }
-html.dark .article__head { background: #121212; color: #e5e5e5; }
+.article__head { background: transparent; color: var(--ink); margin: 0; padding: 22px 18px 18px; position: relative; }
 .article__head::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--c-intl); }
-.article__kicker { font-family: var(--sans); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: rgba(244,240,232,0.85); margin-bottom: 14px; display: flex; gap: 10px; align-items: center; }
-html.dark .article__kicker { color: rgba(229,229,229,0.85); }
+.article__kicker { font-family: var(--sans); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-muted); margin-bottom: 14px; display: flex; gap: 10px; align-items: center; }
 .article__kicker .hot { background: var(--buzz); }
-.article__title { font-family: var(--serif); font-size: 28px; font-weight: 700; line-height: 1.13; letter-spacing: -0.014em; color: #F4F0E8; margin-bottom: 14px; }
-html.dark .article__title { color: #ffffff; }
-.article__byline { font-family: var(--sans); font-size: 11.5px; color: rgba(244,240,232,0.55); letter-spacing: 0.02em; } .article__byline strong { color: #F4F0E8; font-weight: 500; }
-html.dark .article__byline { color: rgba(229,229,229,0.55); } html.dark .article__byline strong { color: #ffffff; }
+.article__title { font-family: var(--serif); font-size: 28px; font-weight: 700; line-height: 1.13; letter-spacing: -0.014em; color: var(--ink); margin-bottom: 14px; }
+.article__byline { font-family: var(--sans); font-size: 11.5px; color: var(--ink-muted); letter-spacing: 0.02em; } .article__byline strong { color: var(--ink); font-weight: 500; }
 .article__hero { margin: 0; } .article__hero img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
 .article__hero-credit { font-family: var(--sans); font-size: 10px; color: var(--muted); padding: 5px 2px 0; text-align: right; }
 .article__body { font-family: var(--serif); font-size: 17px; line-height: 1.7; color: var(--ink); padding: 22px 4px 8px; max-width: 640px; margin: 0 auto; }
