@@ -32,6 +32,9 @@ time_day: दि
 time_week: सप
 archive: संग्रह
 today: आज
-this_week: इस सप्ताह
 this_month: इस महीने
-this_year: इस साल
+search: खोजें
+search_placeholder: लेख खोजें...
+no_results: कोई परिणाम नहीं मिला
+search_results_for: परिणाम
+the_brief: आज की रिपोर्ट

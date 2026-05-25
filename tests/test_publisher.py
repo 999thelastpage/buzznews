@@ -67,7 +67,7 @@ def test_render_home_produces_tiles():
         cluster_count=10,
         published_count=2,
         date_str="25 May 2026",
-        archive_str="2026-05-24",
+        month_str="2026-05",
     )
     assert "<!doctype html" in html.lower()
     assert "col-span-12" in html

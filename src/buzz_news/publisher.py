@@ -1,6 +1,7 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import func, select, update
@@ -14,6 +15,21 @@ from buzz_news.imager import pick_image
 
 settings = get_settings()
 log = logging.getLogger("buzz_news.publisher")
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def _ist_day_window(now_utc: datetime | None = None) -> tuple[datetime, datetime, str, str]:
+    """Return (start_utc, end_utc, ist_date_str, ist_month_str) for the IST day
+    containing now_utc. Used so 'today' and 'this month' archive boundaries
+    match the editorial calendar (IST), not UTC."""
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    ist_now = now_utc.astimezone(IST)
+    ist_midnight = ist_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_utc = ist_midnight.astimezone(timezone.utc)
+    end_utc = start_utc + timedelta(days=1)
+    return start_utc, end_utc, ist_now.strftime("%Y-%m-%d"), ist_now.strftime("%Y-%m")
 
 
 async def _build_source_corpus(cluster_id: int) -> str:
@@ -122,7 +138,7 @@ def _render(template_name: str, **ctx) -> str:
     return tpl.render(**ctx)
 
 
-def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, archive_str: str) -> str:
+def _render_home(articles: list[dict], lang: str, cluster_count: int, published_count: int, date_str: str, month_str: str) -> str:
     articles = _interleave_categories(articles)
     articles = _compute_tile_sizes(articles)
     labels = _get_labels(lang)
@@ -133,7 +149,7 @@ def _render_home(articles: list[dict], lang: str, cluster_count: int, published_
         articles=articles,
         labels=labels,
         date_str=date_str,
-        archive_str=archive_str,
+        month_str=month_str,
         cluster_count=cluster_count,
         published_count=published_count,
     )
@@ -345,23 +361,19 @@ async def render_home_pages(limit: int = 15) -> int:
     static_dir = Path(settings.STATIC_DIR)
     written = 0
 
+    _, _, _, month_str = _ist_day_window(now)
+
     for lang in ("en", "hi"):
         articles = [a for a in (_to_dict(r, lang) for r in rows) if a is not None]
         if not articles:
             continue
-        # The archive tile links to the most recently produced daily rollup.
-        # Today's rollup doesn't exist until the cron fires at midnight IST,
-        # so linking to today's date 404s for most of the day.
-        archive_dir = static_dir / lang / "archive" / "day"
-        archive_files = sorted(archive_dir.glob("*.html"), reverse=True) if archive_dir.exists() else []
-        archive_str = archive_files[0].stem if archive_files else ""
         html = _render_home(
             articles=articles,
             lang=lang,
             cluster_count=cluster_count,
             published_count=published_count,
             date_str=_format_date(now, lang),
-            archive_str=archive_str,
+            month_str=month_str,
         )
         out_path = static_dir / lang / "index.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -370,6 +382,120 @@ async def render_home_pages(limit: int = 15) -> int:
         log.info(f"Rendered home page: {out_path} ({len(articles)} tiles)")
         written += 1
     return written
+
+
+async def render_today_pages(limit: int = 500) -> int:
+    """Render <STATIC_DIR>/{en,hi}/archive/today.html with all articles
+    published in the current IST day, ranked by Cluster.current_score.
+
+    Unlike render_home_pages, this does not filter by verifier_passed —
+    the archive shows the full corpus that the home page selects from.
+    """
+    now = datetime.now(timezone.utc)
+    start_utc, end_utc, ist_date_str, month_str = _ist_day_window(now)
+
+    async with async_session_factory() as session:
+        garbage_phrases = ("Unavailable", "Access Restrictions", "Inaccessible")
+        result = await session.execute(
+            select(
+                Article.id,
+                Article.slug,
+                Article.title_en,
+                Article.title_hi,
+                Article.summary_en,
+                Article.summary_hi,
+                Cluster.category.label("category"),
+                Article.region,
+                Article.hero_image_url,
+                Article.published_at,
+                Cluster.current_score,
+                Cluster.source_count,
+                Article.cluster_id,
+            )
+            .join(Cluster, Article.cluster_id == Cluster.id)
+            .where(Article.published_at >= start_utc)
+            .where(Article.published_at < end_utc)
+            .where(*[~Article.title_en.contains(p) for p in garbage_phrases])
+            .order_by(Cluster.current_score.desc())
+            .limit(limit)
+        )
+        rows = result.fetchall()
+
+    if not rows:
+        log.warning("render_today_pages: no articles in today's IST window")
+        return 0
+
+    static_dir = Path(settings.STATIC_DIR)
+    written = 0
+    period_labels = {
+        "en": f"Today — {now.astimezone(IST).strftime('%d %b %Y')} IST",
+        "hi": f"आज — {now.astimezone(IST).strftime('%d %b %Y')} IST",
+    }
+
+    for lang in ("en", "hi"):
+        articles = [
+            {
+                "id": r.id,
+                "slug": r.slug,
+                "title_en": r.title_en,
+                "title_hi": r.title_hi,
+                "category": r.category or "general",
+                "region": r.region,
+                "hero_image_url": r.hero_image_url,
+                "published_at": r.published_at,
+                "source_count": r.source_count or 1,
+                "score": float(r.current_score or 0),
+            }
+            for r in rows
+            if not (lang == "hi" and not r.title_hi)
+        ]
+        if not articles:
+            continue
+
+        labels = _get_labels(lang)
+        windows = _archive_windows("today", lang, labels, ist_date_str, month_str)
+
+        html = _render(
+            "archive.html",
+            lang=lang,
+            period="today",
+            period_label=period_labels[lang],
+            date_str=ist_date_str,
+            page_key="archive/today",
+            articles=articles,
+            windows=windows,
+            total_count=len(articles),
+            labels=labels,
+            og_description=f"Today's news — {len(articles)} stories",
+            search_query="",
+        )
+        out_path = static_dir / lang / "archive" / "today.html"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(html)
+        log.info(f"Rendered today archive: {out_path} ({len(articles)} articles)")
+        written += 1
+
+    return written
+
+
+def _archive_windows(current: str, lang: str, labels: dict, today_str: str, month_str: str) -> list[dict]:
+    """The 2-window archive nav: Today + This Month. Used by today + monthly
+    + search archive pages so the user can pivot between them."""
+    return [
+        {
+            "period": "today",
+            "url": f"/{lang}/archive/today",
+            "label": labels.get("today", "Today"),
+            "meta": today_str,
+        },
+        {
+            "period": "month",
+            "url": f"/{lang}/archive/month/{month_str}",
+            "label": labels.get("this_month", "This Month"),
+            "meta": month_str,
+        },
+    ]
 
 
 async def publish_top_n(n: int = 10) -> int:
@@ -554,6 +680,11 @@ async def publish_top_n(n: int = 10) -> int:
         await render_home_pages()
     except Exception as e:
         log.exception(f"render_home_pages failed: {e}")
+
+    try:
+        await render_today_pages()
+    except Exception as e:
+        log.exception(f"render_today_pages failed: {e}")
 
     return published
 

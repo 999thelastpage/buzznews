@@ -32,6 +32,9 @@ time_day: d
 time_week: w
 archive: Archive
 today: Today
-this_week: This week
-this_month: This month
-this_year: This year
+this_month: This Month
+search: Search
+search_placeholder: Search articles...
+no_results: No results found
+search_results_for: Results for
+the_brief: The Brief
