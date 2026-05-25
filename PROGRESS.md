@@ -571,3 +571,109 @@ ab1ff6d home: point archive tile at most recent existing rollup
   via the DeepSeek console.
 
 
+## Session — 2026-05-25 evening (embed-model break + layout fixes)
+
+Anjali flagged "the feed is not refreshing on the main page". Investigation
+turned up three independent problems; all fixed in one session.
+
+### 1. Embed model 404 — silent pipeline stall for ~23 hours
+
+Worker logs showed 700+ retries of `text-embedding-004` returning
+`404 NOT_FOUND` since 2026-05-25 08:34 UTC. Google had removed the model
+from the API entirely. The `client.models.list()` call now only surfaces
+`gemini-embedding-001` (GA), `gemini-embedding-2-preview`, and
+`gemini-embedding-2` — no v1 or v1beta variant of `text-embedding-004` left.
+
+Cascade: embed step failed every 5 min → no new items got vectors →
+clusterer processed 0 new items per cycle → writer/publisher kept
+republishing the same already-clustered backlog. Home page mtime stayed
+recent (because the publisher writes index.html each cycle) but the content
+was frozen — explaining "feed not refreshing".
+
+Fix (with Anjali's approval — paid model, breaks CLAUDE.md's old
+"don't swap to paid" rule):
+- `GEMINI_MODEL_EMBED=gemini-embedding-001` in `.env`, `.env.example`,
+  `config.py`. Embedder already passes `output_dimensionality=768` for
+  RETRIEVAL_DOCUMENT so DB column shape stays.
+- Wiped corpus: `UPDATE raw_items SET embedding=NULL, cluster_id=NULL`
+  (2322 rows), `DELETE FROM cluster_scores` (91206 rows),
+  `DELETE FROM clusters WHERE id NOT IN (SELECT cluster_id FROM articles)`
+  (443 orphan clusters removed; 145 article-bound clusters kept as
+  tombstones — they'll fall out of the 48h match window). 145 published
+  articles + HTML preserved.
+- Restarted worker. First embed-once: 500 items in ~10s. cluster-once
+  produced 220 fresh clusters. write+publish wrote 10 new articles. Home
+  page re-rendered with fresh content.
+
+### 2. 14 of 20 sources auto-disabled (fail_count ≥ 5)
+
+After embed broke, transient connection failures earlier in the day had
+also tripped the fetcher's 5-failure disable threshold for most sources.
+By the time we checked, only 4 BBC RSS feeds + 2 Tavily searches were
+enabled.
+
+Direct test (running each adapter via `fetch_source` in a fresh httpx
+client) showed all 14 disabled sources working: aljazeera_en returned 25
+candidates, bbc_world 45, hn_top 25, thehindu_national 60, ndtv_topstories
+20, gdelt_latest 75. So the past failures were transient (probably DNS or
+brief upstream blips on the VPS).
+
+Fix:
+- `UPDATE sources SET enabled=true, fail_count=0 WHERE enabled=false OR fail_count>0`
+- Triggered fetch cycle: 637 new items from 20 sources. 5 sources still
+  flaky in that single cycle (`ap_topnews`, `reuters_world`, `jagran_news`,
+  `indianexpress_india`, `gdelt_latest`) — not investigated, fail_count=1
+  for those.
+
+**Followup needed**: the 5-failure disable threshold is too aggressive for
+transient errors. Consider exponential backoff + daily re-enable, or
+require N *consecutive* failures rather than running total. Out of scope
+for this session.
+
+### 3. Home page mosaic — visible gaps on desktop
+
+Anjali: "the last block in horizontal is not taking full space due to which
+the end of row in that layout is appearing empty". Verified with
+agent-browser screenshots: two distinct gaps on the 6-col desktop grid
+(≥720px):
+- **Row 4 right side**: a 2x1 article tile (3 cols) + a 1x1 article tile
+  (2 cols) = 5 of 6 cols, leaving col 6 empty. Math: 5 × 2x1 (rank-based
+  sizing assigned ranks 1–5) is an odd count, the 5th can't pair with
+  another 2x1.
+- **Last row right side**: archive tile (2x1, 3 cols) sat alone at the
+  bottom with cols 4–6 empty.
+
+Fixes:
+- `publisher.py:_compute_tile_sizes`: bumped the 2x1 rank window from
+  `<=5` to `<=6`. Six 2x1s pair cleanly into 3 desktop rows
+  (rows 1–2 share the lead 2x2, rows 3–4 are pure 2x1 pairs). 15 × 1x1 =
+  5 rows of 3 tiles. Article count needs to be `1 mod 3` after the lead
+  and 2x1s for the 1x1 section to pack — works for the current 22-article
+  top-N.
+- `_inline_styles.html` line 62: added `.mos > :last-child { grid-column:
+  1 / -1; }` inside the `@media (min-width: 720px)` block. Archive tile
+  becomes a full-width banner on desktop.
+
+Verified with screenshots (1280×900 and 420×900): rows pack cleanly on
+desktop, phone layout unchanged.
+
+### Docs updated this session
+
+- `CLAUDE.md`: embed model `text-embedding-004` → `gemini-embedding-001`;
+  the "do not swap to paid model" warning replaced with the new GA pin
+  and the historical note about why we switched.
+- `AGENTS.md`: same change in the hard-constraints list and the file-tree
+  comment for `embedder.py`.
+
+### Open items for next session
+
+- **Source flakiness threshold**: 5-failure disable rule is too aggressive
+  for transient network blips. Most disabled sources were healthy on
+  retry. Consider consecutive-failure tracking, exponential backoff,
+  or a daily re-enable job.
+- **Image gate** — still deferred (see memory
+  `project_image_gate_deferred.md`).
+- **Gemini spending cap** — still hit. Writer falls through to Anthropic;
+  embed is now on `gemini-embedding-001` which is a separate paid line
+  item, watch the AI Studio billing.
+
