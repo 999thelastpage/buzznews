@@ -7,7 +7,7 @@ from sqlalchemy import func, select, update
 
 from buzz_news.config import get_settings
 from buzz_news.db import async_session_factory
-from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source
+from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source, ClusterScore
 from buzz_news.writer import write_article
 from buzz_news.verifier import verify_en, verify_hi
 from buzz_news.imager import pick_image
@@ -59,32 +59,57 @@ def _interleave_categories(articles: list[dict]) -> list[dict]:
 
 
 def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
-    """Rank-based tile sizing per layout-4-magazine.html mockup.
-    Repeats a 7-article cycle:
-    - rank % 7 == 0: col_span="col-12", card_class="card-huge" (Lead)
-    - rank % 7 in (1, 2, 3, 4): col_span="col-3", card_class="" (4 equal columns)
-    - rank % 7 == 5: col_span="col-8", card_class="card-large" (Large asymmetric)
-    - rank % 7 == 6: col_span="col-4", card_class="" (Asymmetric balance)
+    """Rank-based tile sizing per the updated 15-article layout cycle.
+    Repeats a 15-article cycle:
+    - rank % 15 == 0: col_span="col-span-12 lg:col-span-8 lg:row-span-2", card_class="card-huge" (Lead)
+    - rank % 15 in (1, 2, 3): col_span="col-span-12 md:col-span-6 lg:col-span-4", card_class="" (Row 2 standard)
+    - rank % 15 == 4: col_span="col-span-12 lg:col-span-7", card_class="card-large" (Row 3 large)
+    - rank % 15 == 5: col_span="col-span-12 lg:col-span-5", card_class="card-large" (Row 3 large)
+    - rank % 15 == 6: col_span="col-span-12 lg:col-span-6 lg:row-span-2", card_class="card-large" (Row 4 bento large)
+    - rank % 15 in (7, 8, 9, 10): col_span="col-span-12 md:col-span-6 lg:col-span-3", card_class="" (Row 4 standard)
+    - rank % 15 == 11: col_span="col-span-12 lg:col-span-4", card_class="" (Row 5 standard)
+    - rank % 15 == 12: col_span="col-span-12 lg:col-span-8", card_class="card-large" (Row 5 large)
+    - rank % 15 in (13, 14): col_span="col-span-12 lg:col-span-6", card_class="card-large" (Row 6 large)
     """
     result = []
     for rank, art in enumerate(articles):
-        mod_rank = rank % 7
+        mod_rank = rank % 15
         if mod_rank == 0:
-            art["col_span"] = "col-12"
+            art["col_span"] = "col-span-12 lg:col-span-8 lg:row-span-2"
             art["card_class"] = "card-huge"
-            art["tile_size"] = "col-12 card-huge"
-        elif mod_rank in (1, 2, 3, 4):
-            art["col_span"] = "col-3"
+            art["tile_size"] = "col-span-12 lg:col-span-8 lg:row-span-2 card-huge"
+        elif mod_rank in (1, 2, 3):
+            art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-4"
             art["card_class"] = ""
-            art["tile_size"] = "col-3"
-        elif mod_rank == 5:
-            art["col_span"] = "col-8"
+            art["tile_size"] = "col-span-12 md:col-span-6 lg:col-span-4"
+        elif mod_rank == 4:
+            art["col_span"] = "col-span-12 lg:col-span-7"
             art["card_class"] = "card-large"
-            art["tile_size"] = "col-8 card-large"
-        else:  # mod_rank == 6
-            art["col_span"] = "col-4"
+            art["tile_size"] = "col-span-12 lg:col-span-7 card-large"
+        elif mod_rank == 5:
+            art["col_span"] = "col-span-12 lg:col-span-5"
+            art["card_class"] = "card-large"
+            art["tile_size"] = "col-span-12 lg:col-span-5 card-large"
+        elif mod_rank == 6:
+            art["col_span"] = "col-span-12 lg:col-span-6 lg:row-span-2"
+            art["card_class"] = "card-large"
+            art["tile_size"] = "col-span-12 lg:col-span-6 lg:row-span-2 card-large"
+        elif mod_rank in (7, 8, 9, 10):
+            art["col_span"] = "col-span-12 md:col-span-6 lg:col-span-3"
             art["card_class"] = ""
-            art["tile_size"] = "col-4"
+            art["tile_size"] = "col-span-12 md:col-span-6 lg:col-span-3"
+        elif mod_rank == 11:
+            art["col_span"] = "col-span-12 lg:col-span-4"
+            art["card_class"] = ""
+            art["tile_size"] = "col-span-12 lg:col-span-4"
+        elif mod_rank == 12:
+            art["col_span"] = "col-span-12 lg:col-span-8"
+            art["card_class"] = "card-large"
+            art["tile_size"] = "col-span-12 lg:col-span-8 card-large"
+        else:  # mod_rank in (13, 14)
+            art["col_span"] = "col-span-12 lg:col-span-6"
+            art["card_class"] = "card-large"
+            art["tile_size"] = "col-span-12 lg:col-span-6 card-large"
 
         art["is_hot"] = art.get("is_hot", False)
         result.append(art)
@@ -162,6 +187,7 @@ def _render_article(
             "hero_image_url": image_url,
             "hero_image_credit": image_credit,
             "source_count": len(article_sources),
+            "sources": article_sources,
         },
         is_hot=is_hot,
         body_paragraphs=[p.strip() for p in body.split("\n\n") if p.strip()],
@@ -175,6 +201,32 @@ def _render_article(
 def _get_labels(lang: str) -> dict:
     from buzz_news.web.i18n import get_labels
     return get_labels(lang)
+
+
+def _extract_why_it_matters(summary: str | None, lang: str) -> str:
+    if not summary:
+        return ""
+    summary = summary.strip()
+    if lang == "hi":
+        parts = [p.strip() for p in summary.split("।") if p.strip()]
+        if parts:
+            return parts[-1] + "।"
+    else:
+        parts = [p.strip() for p in summary.split(". ") if p.strip()]
+        if parts:
+            last = parts[-1]
+            if last and not last.endswith((".", "?", "!")):
+                last += "."
+            return last
+    return ""
+
+
+def _get_trending_data(cluster_id: int, current_score: float, scores_by_cluster: dict[int, list[float]]) -> list[float]:
+    trending = scores_by_cluster.get(cluster_id, [])
+    if len(trending) < 2:
+        s_val = float(current_score or 0.0)
+        return [s_val, s_val]
+    return [float(x) for x in trending[-10:]]
 
 
 async def render_home_pages(limit: int = 22) -> int:
@@ -199,6 +251,7 @@ async def render_home_pages(limit: int = 22) -> int:
                 Article.published_at,
                 Cluster.current_score,
                 Cluster.source_count,
+                Article.cluster_id,
             )
             .join(Cluster, Article.cluster_id == Cluster.id)
             .where(*[~Article.title_en.contains(p) for p in garbage_phrases])
@@ -212,21 +265,45 @@ async def render_home_pages(limit: int = 22) -> int:
             return 0
 
         article_ids = [r.id for r in rows]
+        cluster_ids = [r.cluster_id for r in rows]
+
+        # Fetch sources with URLs and raw titles
         src_result = await session.execute(
-            select(ArticleSource.article_id, ArticleSource.source_name)
+            select(
+                ArticleSource.article_id,
+                ArticleSource.source_name,
+                ArticleSource.url,
+                RawItem.title
+            )
+            .join(RawItem, ArticleSource.raw_item_id == RawItem.id)
             .where(ArticleSource.article_id.in_(article_ids))
             .order_by(ArticleSource.article_id, ArticleSource.rank)
         )
-        names_by_article: dict[int, list[str]] = {}
-        for art_id, name in src_result.fetchall():
-            names = names_by_article.setdefault(art_id, [])
-            if name not in names:
-                names.append(name)
+        sources_by_article = {}
+        for art_id, name, url, title in src_result.fetchall():
+            srcs = sources_by_article.setdefault(art_id, [])
+            if not any(s["name"] == name for s in srcs):
+                srcs.append({
+                    "name": name,
+                    "url": url,
+                    "title": title or "",
+                })
+
+        # Fetch historical composite scores for trending sparklines
+        scores_result = await session.execute(
+            select(ClusterScore.cluster_id, ClusterScore.composite)
+            .where(ClusterScore.cluster_id.in_(cluster_ids))
+            .order_by(ClusterScore.cluster_id, ClusterScore.computed_at.asc())
+        )
+        scores_by_cluster = {}
+        for c_id, comp in scores_result.fetchall():
+            scores_by_cluster.setdefault(c_id, []).append(float(comp))
 
     def _to_dict(row, lang: str) -> dict | None:
         if lang == "hi" and not row.title_hi:
             return None
-        names = names_by_article.get(row.id, [])
+        art_sources = sources_by_article.get(row.id, [])
+        names = [s["name"] for s in art_sources]
         summary = row.summary_hi if lang == "hi" and row.summary_hi else row.summary_en
         excerpt = ""
         if summary:
@@ -235,6 +312,13 @@ async def render_home_pages(limit: int = 22) -> int:
                 excerpt = paragraphs[0]
                 if len(excerpt) > 200:
                     excerpt = excerpt[:200] + "..."
+
+        why_it_matters = _extract_why_it_matters(summary, lang)
+        if not why_it_matters:
+            why_it_matters = "इस घटनाक्रम पर कवरेज जारी है।" if lang == "hi" else "Coverage of this development continues."
+
+        trending_data = _get_trending_data(row.cluster_id, row.current_score, scores_by_cluster)
+
         return {
             "id": row.id,
             "slug": row.slug,
@@ -247,7 +331,10 @@ async def render_home_pages(limit: int = 22) -> int:
             "score": float(row.current_score or 0),
             "source_count": row.source_count or len(names) or 1,
             "source_names": names,
+            "sources": art_sources,
             "excerpt": excerpt,
+            "why_it_matters": why_it_matters,
+            "trending_data": trending_data,
         }
 
     async with async_session_factory() as session:

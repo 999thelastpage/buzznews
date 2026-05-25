@@ -33,6 +33,13 @@ def test_render_home_produces_tiles():
             "score": 0.82,
             "source_count": 5,
             "source_names": ["Reuters", "BBC", "AFP"],
+            "sources": [
+                {"name": "Reuters", "url": "https://reuters.com", "title": "Reuters Story"},
+                {"name": "BBC", "url": "https://bbc.com", "title": "BBC Story"},
+                {"name": "AFP", "url": "https://afp.com", "title": "AFP Story"},
+            ],
+            "trending_data": [0.5, 0.82],
+            "why_it_matters": "Why Alpha matters.",
         },
         {
             "id": 2,
@@ -46,6 +53,12 @@ def test_render_home_produces_tiles():
             "score": 0.5,
             "source_count": 3,
             "source_names": ["The Verge", "Wired"],
+            "sources": [
+                {"name": "The Verge", "url": "https://theverge.com", "title": "Verge Story"},
+                {"name": "Wired", "url": "https://wired.com", "title": "Wired Story"},
+            ],
+            "trending_data": [0.3, 0.5],
+            "why_it_matters": "Why Beta matters.",
         },
     ]
     html = _render_home(
@@ -57,8 +70,8 @@ def test_render_home_produces_tiles():
         archive_str="2026-05-24",
     )
     assert "<!doctype html" in html.lower()
-    assert "col-12" in html
+    assert "col-span-12" in html
     assert "card-huge" in html
-    assert "col-3" in html
+    assert "col-span-12 md:col-span-6 lg:col-span-4" in html
     assert "Alpha headline" in html
     assert "Reuters" in html
