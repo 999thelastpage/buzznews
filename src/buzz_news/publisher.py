@@ -60,13 +60,15 @@ def _interleave_categories(articles: list[dict]) -> list[dict]:
 
 def _compute_tile_sizes(articles: list[dict]) -> list[dict]:
     """Rank-based tile sizing per Design.md §2.1:
-    top 1 → 2x2 (the lead), next up to 5 → 2x1, rest → 1x1.
-    Assumes articles are already sorted by score desc."""
+    top 1 → 2x2 (the lead), next 6 → 2x1, rest → 1x1.
+    Six 2x1s (even count) pair cleanly into 3 rows on the 6-col desktop grid;
+    five would leave a 1-col gap. The lead 2x2 fills 2 rows × 3 cols, paired
+    with two 2x1s on the right side."""
     result = []
     for rank, art in enumerate(articles):
         if rank == 0:
             art["tile_size"] = "2x2"
-        elif rank <= 5:
+        elif rank <= 6:
             art["tile_size"] = "2x1"
         else:
             art["tile_size"] = "1x1"
