@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_macros.html" import mast, render_windows, rank_tile with context %}
+
+{% block head %}
+<meta name="robots" content="noindex,follow">
+{% endblock %}
+
+{% block body %}
+{{ mast(lang, page_key, labels, date_str) }}
+
+<section class="archive">
+  <div class="archive__head">
+    <h1 class="archive__title">
+      {{ labels.search_results_for or 'Results for' }}: <em>{{ search_query }}</em>
+    </h1>
+    <p class="archive__sub">
+      {% if total_count %}
+        {{ total_count }} {% if lang == 'hi' %}लेख{% else %}articles{% endif %}
+      {% else %}
+        {{ labels.no_results or 'No results found' }}
+      {% endif %}
+    </p>
+  </div>
+
+  <form class="archive-search" action="/api/search" method="get" role="search"
+        style="margin: 0 0 20px; display: flex; gap: 8px; max-width: 640px;">
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <input type="search" name="q" value="{{ search_query }}"
+           placeholder="{{ labels.search_placeholder or ('लेख खोजें...' if lang == 'hi' else 'Search articles...') }}"
+           aria-label="{{ labels.search or 'Search' }}"
+           style="flex: 1; padding: 10px 14px; font-size: 15px; font-family: var(--sans); color: var(--ink); background: transparent; border: 1px solid var(--grid-line); border-radius: 2px;">
+    <button type="submit"
+            style="padding: 10px 20px; font-size: 13px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--paper); background: var(--ink); border: 0; border-radius: 2px; cursor: pointer;">
+      {{ labels.search or 'Search' }}
+    </button>
+  </form>
+
+  {% if windows %}{{ render_windows(windows, period, lang, labels) }}{% endif %}
+
+  <div class="rank-mos">
+    {% for art in articles %}
+    {{ rank_tile(art, loop.index, lang, labels) }}
+    {% endfor %}
+  </div>
+</section>
+
+<footer class="foot">
+  <a href="/{{ lang }}/archive/today">← {{ labels.today or 'Today' }}</a>
+  <a href="/{{ lang }}/" style="margin-left: auto">{{ labels.back_to_home }} →</a>
+</footer>
+{% endblock %}
