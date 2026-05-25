@@ -1,4 +1,9 @@
-{# ===== MASTHEAD ===== #}
+{# ===== MASTHEAD =====
+   `page` is either 'home' (no path suffix) or the full per-language path
+   suffix to append after the lang prefix (e.g. 'article/foo-42',
+   'archive/day/2026-05-24'). Slugs and archive paths are language-agnostic,
+   so the EN/HI links share the same suffix and differ only in /en/ vs /hi/.
+#}
 {% macro mast(lang, page, labels, date_str) -%}
 <header class="mast">
   {% if page == 'home' %}
@@ -9,8 +14,8 @@
   <div class="mast__meta">
     <span>{{ date_str }}</span>
     <span class="mast__lang">
-      <a href="/en{% if page != 'home' %}/{{ page }}{% endif %}" {% if lang=='en' %}class="is-active"{% endif %}>EN</a>·
-      <a href="/hi{% if page != 'home' %}/{{ page }}{% endif %}" {% if lang=='hi' %}class="is-active"{% endif %}>HI</a>
+      <a href="/en/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='en' %}class="is-active"{% endif %}>EN</a>·
+      <a href="/hi/{% if page != 'home' %}{{ page }}{% endif %}" {% if lang=='hi' %}class="is-active"{% endif %}>HI</a>
     </span>
   </div>
 </header>

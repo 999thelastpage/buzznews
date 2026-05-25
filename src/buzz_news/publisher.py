@@ -129,6 +129,7 @@ def _render_article(
     timeline_events: list[dict],
     related_articles: list[dict],
     published_at: datetime,
+    slug: str = "",
 ) -> str:
     return _render(
         "article.html",
@@ -138,6 +139,7 @@ def _render_article(
         date_str=_format_date(published_at, lang),
         article={
             "id": article_id,
+            "slug": slug,
             "title_en": title,
             "category": category,
             "region": region,
@@ -386,6 +388,7 @@ async def publish_top_n(n: int = 10) -> int:
             is_hot, getattr(draft, "next_sentence", None),
             [], [],
             datetime.now(timezone.utc),
+            slug=slug,
         )
         static_dir = Path(settings.STATIC_DIR)
         out_path_en = static_dir / "en" / "article" / f"{slug}.html"
@@ -401,6 +404,7 @@ async def publish_top_n(n: int = 10) -> int:
                 is_hot, getattr(draft, "next_sentence_hi", None),
                 [], [],
                 datetime.now(timezone.utc),
+                slug=slug,
             )
             out_path_hi = static_dir / "hi" / "article" / f"{slug}.html"
             out_path_hi.parent.mkdir(parents=True, exist_ok=True)

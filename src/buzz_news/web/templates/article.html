@@ -2,7 +2,7 @@
 {% from "_macros.html" import mast, article_head, hero, sources, timeline, related with context %}
 
 {% block body %}
-{{ mast(lang, 'article', labels, date_str) }}
+{{ mast(lang, 'article/' ~ article.slug, labels, date_str) }}
 
 <article class="article">
   {{ article_head(article, is_hot, lang, labels) }}
