@@ -223,7 +223,7 @@ def _get_trending_data(cluster_id: int, current_score: float, scores_by_cluster:
     return [float(x) for x in trending[-10:]]
 
 
-async def render_home_pages(limit: int = 22) -> int:
+async def render_home_pages(limit: int = 15) -> int:
     """Render <STATIC_DIR>/{en,hi}/index.html with the top N published articles.
     Returns the number of language files written."""
     async with async_session_factory() as session:
