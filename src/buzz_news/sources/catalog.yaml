@@ -24,14 +24,6 @@ sources:
     region: GLOBAL
     category: tech
     authority: 0.90
-  - slug: reuters_world
-    name: Reuters — World
-    url: https://www.reuters.com/world/rss
-    kind: rss
-    language: en
-    region: GLOBAL
-    category: international
-    authority: 0.95
   - slug: aljazeera_en
     name: Al Jazeera English
     url: https://www.aljazeera.com/xml/rss/all.xml
@@ -40,14 +32,10 @@ sources:
     region: GLOBAL
     category: international
     authority: 0.85
-  - slug: ap_topnews
-    name: Associated Press — Top News
-    url: https://apnews.com/index.rss
-    kind: rss
-    language: en
-    region: GLOBAL
-    category: international
-    authority: 0.95
+  # NOTE: Reuters and Associated Press RSS feeds were dropped 2026-05-27
+  # — both publishers killed their public RSS in 2020-ish (HTTP 401
+  # without a paid Reuters Connect / AP API key). We get wire coverage
+  # via Google News (gn_in_top_en below) which aggregates them.
 
   # ---------- India-focused English ----------
   - slug: thehindu_national
@@ -74,22 +62,30 @@ sources:
     region: IN
     category: sports
     authority: 0.80
-  - slug: indianexpress_india
-    name: Indian Express — India
-    url: https://indianexpress.com/section/india/feed/
+  - slug: ht_india
+    name: Hindustan Times — India
+    url: https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml
     kind: rss
     language: en
     region: IN
     category: politics
     authority: 0.80
-  - slug: scroll_in
-    name: Scroll.in
-    url: https://scroll.in/feed
+  - slug: ht_world
+    name: Hindustan Times — World
+    url: https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.80
+  - slug: mint_news
+    name: Mint — News
+    url: https://www.livemint.com/rss/news
     kind: rss
     language: en
     region: IN
-    category: general
-    authority: 0.70
+    category: business
+    authority: 0.80
   - slug: ndtv_topstories
     name: NDTV — Top Stories
     url: https://feeds.feedburner.com/ndtvnews-top-stories
@@ -98,6 +94,9 @@ sources:
     region: IN
     category: general
     authority: 0.70
+  # NOTE: Indian Express RSS (403 bot block), Scroll.in (malformed
+  # XML at the published feed URL), and Dainik Jagran (404) were
+  # dropped 2026-05-27 after a probe found they produced 0 items each.
 
   # ---------- Hindi ----------
   - slug: bbc_hindi
@@ -125,10 +124,28 @@ sources:
     category: general
     authority: 0.60
     is_tabloid: true
-  - slug: jagran_news
-    name: Dainik Jagran — News
-    url: https://www.jagran.com/rss/news/national.xml
-    kind: rss
+  # NOTE: Dainik Jagran RSS dropped 2026-05-27 — URL returns 404.
+
+  # ---------- Google News (meta-aggregator, title-only) ----------
+  # Google News dedups across hundreds of publishers and exposes RSS
+  # per country/language. The items arrive with publisher attribution
+  # via `entry.source.title`. The article URL is a JS-redirected
+  # `news.google.com/rss/articles/...` link that doesn't resolve
+  # server-side, so the normalizer skips trafilatura on these
+  # (kind=googlenews is in SKIP_BODY_FETCH_KINDS). Items contribute
+  # cluster signal but not body content; pair with rich sources above.
+  - slug: gn_in_top_en
+    name: Google News — India Top (EN)
+    url: https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en
+    kind: googlenews
+    language: en
+    region: IN
+    category: general
+    authority: 0.65
+  - slug: gn_in_top_hi
+    name: Google News — India Top (HI)
+    url: https://news.google.com/rss?hl=hi-IN&gl=IN&ceid=IN:hi
+    kind: googlenews
     language: hi
     region: IN
     category: general

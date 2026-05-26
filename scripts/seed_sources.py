@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 from sqlalchemy import select
-from sqlalchemy.dml import Insert
+from sqlalchemy.dialects.postgresql import insert as Insert
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -44,6 +44,7 @@ async def seed_sources(catalog_path: str | None = None) -> int:
                 "extra": src.get("extra", {}),
             }
 
+            values["slug"] = slug
             if existing:
                 await session.execute(
                     Insert(Source).values(id=existing.id, **values).on_conflict_do_update(
@@ -52,7 +53,6 @@ async def seed_sources(catalog_path: str | None = None) -> int:
                     )
                 )
             else:
-                values["slug"] = slug
                 await session.execute(Insert(Source).values(**values))
 
             seeded += 1

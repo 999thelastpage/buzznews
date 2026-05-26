@@ -7,6 +7,7 @@ from buzz_news.sources.reddit import RedditAdapter
 from buzz_news.sources.hn import HNAdapter
 from buzz_news.sources.gdelt import GDELTAdapter
 from buzz_news.sources.tavily import TavilyAdapter
+from buzz_news.sources.googlenews import GoogleNewsAdapter
 
 if TYPE_CHECKING:
     from buzz_news.models import Source
@@ -19,7 +20,14 @@ ADAPTERS = {
     "hn": HNAdapter(),
     "gdelt": GDELTAdapter(),
     "tavily": TavilyAdapter(),
+    "googlenews": GoogleNewsAdapter(),
 }
+
+# Source kinds whose URLs we should NOT trafilatura — Google News
+# article URLs are JS-redirected to the publisher and don't resolve
+# server-side, so any fetch attempt returns Google's wrapper HTML.
+# These items live as title/snippet-only signals.
+SKIP_BODY_FETCH_KINDS = {"googlenews"}
 
 
 async def fetch_source(source: "Source", http) -> list[RawCandidate]:
