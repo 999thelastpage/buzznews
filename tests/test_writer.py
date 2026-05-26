@@ -21,14 +21,16 @@ def test_build_sources_block():
 def test_writer_prompt_has_strict_json_requirement():
     from buzz_news.writer import EN_WRITER_PROMPT
     assert "valid JSON" in EN_WRITER_PROMPT
-    assert "body must be 150–250 words" in EN_WRITER_PROMPT
+    assert "280–360 words" in EN_WRITER_PROMPT
     assert "No quoted phrases longer than 8 words" in EN_WRITER_PROMPT
+    # Do NOT name source outlets in the prose — sources are listed separately.
+    assert "DO NOT name source outlets" in EN_WRITER_PROMPT
 
 
 def test_hi_prompt_has_hindi_guidance():
     from buzz_news.writer import HI_WRITER_PROMPT
     assert "हिन्दी" in HI_WRITER_PROMPT or "Hindi" in HI_WRITER_PROMPT
-    assert "BBC Hindi" in HI_WRITER_PROMPT or "Wire Hindi" in HI_WRITER_PROMPT
+    assert "BBC हिंदी" in HI_WRITER_PROMPT or "द वायर हिंदी" in HI_WRITER_PROMPT
 
 
 def test_article_draft_dataclass():

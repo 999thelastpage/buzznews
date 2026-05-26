@@ -156,18 +156,29 @@ async def run_once() -> int:
     lsh = MinHashLSH(threshold=0.85, num_perm=128)
     minhashes: dict[str, tuple[int, object]] = {}
 
-    for item in items:
-        if item.body:
-            m = create_minhash(item.body)
-            key = str(item.id)
-            lsh.insert(key, m)
-            minhashes[key] = (item.id, m)
+    # Insert + query must use identical text composition or Jaccard drifts
+    # below the 0.85 threshold even on byte-identical bodies (8 GDELT copies
+    # of the same Hyundai recall slipped through previously because INSERT
+    # used body-only and QUERY used title+body). Items are added to the LSH
+    # AFTER they are processed, so each item never matches itself.
+    def _dedup_text(it) -> str:
+        return f"{it.title}. {it.body or it.snippet or ''}"
 
     clustered_count = 0
     now = datetime.now(timezone.utc)
 
+    def _register_in_lsh(item) -> None:
+        if not (item.body or item.snippet):
+            return
+        m = create_minhash(_dedup_text(item))
+        key = str(item.id)
+        if key in minhashes:
+            return
+        lsh.insert(key, m)
+        minhashes[key] = (item.id, m)
+
     for item in items:
-        text = f"{item.title}. {item.body or item.snippet or ''}"
+        text = _dedup_text(item)
         dup_key = is_duplicate(text, lsh, {k: v[1] for k, v in minhashes.items()})
         if dup_key is not None:
             dup_item_id = minhashes[dup_key][0]
@@ -185,6 +196,7 @@ async def run_once() -> int:
                     await session.commit()
                     clustered_count += 1
                     log.debug(f"MinHash dedup: item {item.id} attached to cluster {existing_cluster_id}")
+                    _register_in_lsh(item)
                     continue
 
         embedding = np.array(item.embedding, dtype=np.float32)
@@ -252,6 +264,8 @@ async def run_once() -> int:
 
                 clustered_count += 1
                 log.debug(f"Created new cluster {cluster_id} for item {item.id}")
+
+        _register_in_lsh(item)
 
     log.info(f"Clustered {clustered_count} items")
     return clustered_count

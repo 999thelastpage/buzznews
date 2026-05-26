@@ -4,7 +4,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from buzz_news.config import get_settings
 from buzz_news.db import async_session_factory
@@ -18,6 +18,13 @@ settings = get_settings()
 log = logging.getLogger("buzz_news.publisher")
 
 IST = ZoneInfo("Asia/Kolkata")
+
+# Skip publish (and the 2 LLM calls it would trigger) when a cluster has
+# fewer than this many total characters of body+snippet across its raw items.
+# Below this floor the writer either returns a 1-line "no content" stub or
+# hallucinates. Picked from corpus audit 2026-05-27: clusters with <500 chars
+# of source content produced the broken stub articles (id=222, 864, etc).
+MIN_SOURCE_CHARS_FOR_PUBLISH = 500
 
 
 def _ist_day_window(now_utc: datetime | None = None) -> tuple[datetime, datetime, str, str]:
@@ -562,6 +569,31 @@ async def publish_top_n(n: int = 10) -> int:
                 if age.total_seconds() < 7200:
                     continue
 
+        # Thin-source gate: a cluster with almost no body/snippet text is
+        # not worth 2 writer LLM calls — the model either returns a stub
+        # ("provided source does not contain sufficient content") or
+        # hallucinates from the title. Skip and let the cluster either
+        # accumulate more items or fall off the publish queue.
+        async with async_session_factory() as session:
+            chars_row = await session.execute(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.length(func.coalesce(RawItem.body, ""))
+                            + func.length(func.coalesce(RawItem.snippet, ""))
+                        ),
+                        0,
+                    )
+                ).where(RawItem.cluster_id == cluster.id)
+            )
+            total_src_chars = int(chars_row.scalar() or 0)
+        if total_src_chars < MIN_SOURCE_CHARS_FOR_PUBLISH:
+            log.info(
+                f"Skipping cluster {cluster.id}: only {total_src_chars} chars "
+                f"of source content (< {MIN_SOURCE_CHARS_FOR_PUBLISH})"
+            )
+            continue
+
         draft = await write_article(cluster.id)
         if not draft or not draft.body_en:
             log.warning(f"No draft for cluster {cluster.id}, skipping")
@@ -666,20 +698,26 @@ async def publish_top_n(n: int = 10) -> int:
                     .values(**article_record)
                 )
                 art_id = existing.id
+                # Refresh source list — cluster membership may have shifted
+                # since the last publish, so previously-attached sources can
+                # be stale or irrelevant. Replace, don't merge.
+                await session.execute(
+                    delete(ArticleSource).where(ArticleSource.article_id == art_id)
+                )
             else:
                 art = Article(**article_record)
                 session.add(art)
                 await session.flush()
                 art_id = art.id
 
-                for rank, src in enumerate(article_sources):
-                    session.add(ArticleSource(
-                        article_id=art.id,
-                        raw_item_id=src["raw_item_id"],
-                        source_name=src["name"],
-                        url=src["url"],
-                        rank=rank,
-                    ))
+            for rank, src in enumerate(article_sources):
+                session.add(ArticleSource(
+                    article_id=art_id,
+                    raw_item_id=src["raw_item_id"],
+                    source_name=src["name"],
+                    url=src["url"],
+                    rank=rank,
+                ))
 
             await session.execute(
                 update(Cluster)

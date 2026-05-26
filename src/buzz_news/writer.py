@@ -26,7 +26,7 @@ def _build_sources_block(items: list[dict], sources: list[dict]) -> str:
         authority = src.get("authority", 0.5)
         published = item.get("published_at")
         iso = published.isoformat() if published else "unknown"
-        body = (item.get("body") or item.get("snippet") or "")[:800]
+        body = (item.get("body") or item.get("snippet") or "")[:1800]
         blocks.append(
             f"[Source: {src['name']} | Authority: {authority} | Published: {iso}]\n"
             f"Title: {item['title']}\n"
@@ -50,7 +50,7 @@ def _parse_json_tolerant(raw: str) -> dict:
         return json.loads(repair_json(raw))
 
 
-def _call_deepseek(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> dict:
+def _call_deepseek(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
     import httpx
     if not settings.DEEPSEEK_API_KEY:
         raise RuntimeError("DEEPSEEK_API_KEY not configured")
@@ -73,7 +73,7 @@ def _call_deepseek(prompt: str, temperature: float = 0.3, max_tokens: int = 2000
     return _parse_json_tolerant(r.json()["choices"][0]["message"]["content"])
 
 
-def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> dict:
+def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
     from google import genai
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
     response = client.models.generate_content(
@@ -89,7 +89,7 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) 
     return _parse_json_tolerant(response.text)
 
 
-def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 2000) -> dict:
+def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
     import anthropic
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     response = client.messages.create(
@@ -101,43 +101,66 @@ def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 200
     return _parse_json_tolerant(response.content[0].text)
 
 
-EN_WRITER_PROMPT = """You are an editorial summarizer for a news aggregation site. Your job is to synthesize a short editorial summary from multiple sources covering the same event, in English.
+EN_WRITER_PROMPT = """You are a senior news editor writing a self-contained article for a daily news site, in English. You're given several source dispatches covering the same event. Your job is to produce one polished, readable piece that someone can read on its own without clicking through to the sources.
 
-STRICT RULES:
+OUTPUT FORMAT:
 - Output strictly valid JSON: {{"title": string, "body": string}}
-- The body must be 150–250 words
-- Synthesize across sources; do not copy any source verbatim
-- No quoted phrases longer than 8 words
-- Attribute claims inline: "Reuters reports...", "according to BBC..."
-- Use a neutral journalistic tone
-- Do not invent facts. If sources disagree, note the disagreement
-- Do not include opinions, predictions, or editorial commentary
-- If sources mention a clear next step or upcoming event, you may end with a single "What's next:" sentence
-- Title: 6–12 words, sentence case, no clickbait
+- Output JSON only. No prose before or after.
+
+TITLE:
+- 6–12 words, sentence case, no clickbait, no question marks, no colons unless they read naturally.
+
+BODY:
+- Target 280–360 words. Never under 220 words. Write in 3–5 paragraphs, separated by blank lines.
+- Open with a strong news lede that answers who/what/when/where in the first 1–2 sentences. Don't bury the news.
+- Then expand: include the key facts, the most relevant numbers and named entities, the most important quote (paraphrased, not verbatim), and the consequence or stakes.
+- Add one short paragraph of context or background to anchor a reader who hasn't been following the story — what led to this, who the main figures are, or what comparable past events frame it.
+- If sources disagree on a material point, note the disagreement neutrally without taking sides.
+- Close with the next step, the open question, or the timeline if any source mentions one. Do not invent one if no source does.
+
+VOICE & STYLE:
+- Neutral journalistic tone — wire-service register, not opinion column.
+- Active voice. Concrete nouns. No editorializing adjectives ("shocking", "stunning", "brave").
+- No first person. No "we", "you", "our readers".
+- DO NOT name source outlets in the prose ("Reuters reports", "according to BBC", "as Al Jazeera notes"). The sources are listed separately below the article in the UI; mentioning them in the body is redundant and reads like a press summary.
+- No quoted phrases longer than 8 words. Paraphrase quotes; only put text inside quotation marks if it's a verbatim short phrase from a named speaker.
+- Do not copy any source verbatim. Synthesize across sources.
+- Do not invent facts. If a detail isn't in the sources, leave it out.
+- No opinions, predictions, or editorial commentary.
 
 SOURCES:
-{sources_block}
-
-Output JSON only. No prose before or after."""
+{sources_block}"""
 
 
-HI_WRITER_PROMPT = """You are an editorial summarizer for a news aggregation site. Your job is to synthesize a short editorial summary from multiple sources covering the same event, in Hindi (हिन्दी).
+HI_WRITER_PROMPT = """आप एक दैनिक समाचार साइट के लिए स्वतंत्र, पढ़ने योग्य लेख लिख रहे हैं — हिन्दी में। नीचे एक ही घटना पर कई स्रोतों की रिपोर्टें हैं। आपका काम है एक तैयार, संपादित लेख देना जिसे पाठक स्रोतों पर क्लिक किए बिना समझ ले।
 
-STRICT RULES:
-- Output strictly valid JSON: {{"title": string, "body": string}}
-- The body must be 150–250 words
-- Synthesize across sources; do not copy any source verbatim
-- No quoted phrases longer than 8 words
-- Attribute claims inline: "Reuters के अनुसार...", "BBC के मुताबिक..."
-- Use natural Hindi journalistic register. Avoid heavy Sanskritized vocabulary; aim for the style of BBC Hindi or The Wire Hindi.
-- Do not invent facts. If sources disagree, note the disagreement
-- Do not include opinions, predictions, or editorial commentary
-- Title: 6–14 words
+OUTPUT FORMAT:
+- कड़ाई से वैध JSON: {{"title": string, "body": string}}
+- केवल JSON, पहले या बाद में कोई गद्य नहीं।
+
+शीर्षक:
+- 6–14 शब्द, सहज वाक्य रूप, क्लिकबेट नहीं, प्रश्नचिन्ह से बचें।
+
+बॉडी (मुख्य लेख):
+- 280–360 शब्दों का लक्ष्य। 220 से कम कभी नहीं। 3–5 अनुच्छेद, खाली पंक्ति से अलग।
+- शुरुआत मज़बूत समाचार-लीड से करें — पहले 1–2 वाक्यों में कौन/क्या/कब/कहाँ स्पष्ट हो।
+- फिर विस्तार: मुख्य तथ्य, ज़रूरी संख्याएँ, नामित व्यक्ति-संस्थाएँ, सबसे प्रासंगिक उद्धरण (शब्दशः नहीं, पैराफ्रेज़), और परिणाम/दांव पर क्या है।
+- एक छोटा संदर्भ-अनुच्छेद जोड़ें — पृष्ठभूमि, मुख्य पात्र, या समान बीते घटनाक्रम — ताकि अनजान पाठक भी समझे।
+- स्रोत यदि किसी तथ्य पर असहमत हों, तटस्थ रूप से लिखें।
+- अगर कोई स्रोत आगामी क़दम या समयरेखा बताता है तो उसी से समापन करें। अपने से न जोड़ें।
+
+शैली:
+- तटस्थ पत्रकार-शैली — विचार-स्तंभ नहीं। सक्रिय वाक्य, ठोस संज्ञा।
+- भारी संस्कृतनिष्ठ शब्दावली से बचें; BBC हिंदी / द वायर हिंदी की शैली अपनाएँ।
+- प्रथम पुरुष नहीं ("हम", "आप", "हमारे पाठक")।
+- स्रोत-संस्थाओं के नाम लेख के अंदर मत लिखें ("रॉयटर्स के अनुसार", "BBC के मुताबिक")। स्रोत साइट पर लेख के नीचे अलग से दिखाए जाते हैं; प्रोज़ में उन्हें दोहराना ज़रूरी नहीं।
+- 8 शब्द से लंबा कोई उद्धरण सीधे न लें। पैराफ्रेज़ करें।
+- किसी स्रोत को शब्दशः न लिखें। अलग-अलग स्रोतों के बीच संश्लेषण करें।
+- तथ्य न गढ़ें। जो स्रोत में नहीं, वो लेख में भी नहीं।
+- विचार, भविष्यवाणी या संपादकीय टिप्पणी न जोड़ें।
 
 SOURCES:
-{sources_block}
-
-Output JSON only. No prose before or after."""
+{sources_block}"""
 
 
 async def write_article(cluster_id: int) -> ArticleDraft | None:
