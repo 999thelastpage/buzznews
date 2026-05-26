@@ -1,0 +1,14 @@
+[Unit]
+Description=BuzzNews nightly Postgres backup to remote VPS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/buzznews
+EnvironmentFile=/home/ubuntu/buzznews/.env
+ExecStart=/home/ubuntu/buzznews/scripts/db_backup.sh
+StandardOutput=append:/var/log/buzz-news/backup.log
+StandardError=append:/var/log/buzz-news/backup.err.log

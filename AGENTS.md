@@ -61,6 +61,7 @@ deploy/
 scripts/
   seed_sources.py
   manual_fetch_once.py
+  db_backup.sh           # nightly Postgres dump → rsync to remote VPS (run by buzz-news-backup.timer)
 ```
 
 ## CLI subcommands (canonical list)

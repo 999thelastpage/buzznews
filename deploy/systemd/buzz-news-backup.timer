@@ -1,0 +1,11 @@
+[Unit]
+Description=Trigger BuzzNews nightly Postgres backup
+
+[Timer]
+OnCalendar=*-*-* 21:30:00 UTC
+Persistent=true
+AccuracySec=5min
+Unit=buzz-news-backup.service
+
+[Install]
+WantedBy=timers.target
