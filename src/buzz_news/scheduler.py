@@ -66,15 +66,6 @@ def build_scheduler() -> AsyncIOScheduler:
     )
 
     scheduler.add_job(
-        _wrap("write", _run_write),
-        trigger=IntervalTrigger(minutes=publish_min),
-        id="write",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-
-    scheduler.add_job(
         _wrap("publish", _run_publish),
         trigger=IntervalTrigger(minutes=publish_min),
         id="publish",
@@ -140,30 +131,6 @@ async def _run_score():
     log.info(f"[scheduler] scored {scored} clusters")
     fired = await detect_and_fire()
     log.info(f"[scheduler] buzz fired {fired} events")
-
-
-async def _run_write():
-    from buzz_news.writer import write_article
-    from buzz_news.db import async_session_factory
-    from buzz_news.models import Cluster
-    from sqlalchemy import select
-
-    async with async_session_factory() as session:
-        result = await session.execute(
-            select(Cluster)
-            .where(Cluster.is_published == False)  # noqa: E712
-            .where(Cluster.current_score > 0)
-            .order_by(Cluster.current_score.desc())
-            .limit(settings.TOP_N_PER_CYCLE)
-        )
-        clusters = list(result.scalars().all())
-
-    written = 0
-    for cluster in clusters:
-        draft = await write_article(cluster.id)
-        if draft and draft.body_en:
-            written += 1
-    log.info(f"[scheduler] wrote {written} article drafts")
 
 
 async def _run_publish():
