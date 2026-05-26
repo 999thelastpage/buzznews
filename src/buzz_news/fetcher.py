@@ -14,7 +14,28 @@ from buzz_news.normalizer import normalize
 log = logging.getLogger("buzz_news.fetcher")
 
 MAX_CONCURRENCY = 10
-FAIL_DISABLE_THRESHOLD = 5
+
+# Exponential cooldown for failing sources. `enabled` is operator-only —
+# failures never flip it. Instead we skip a source for `_cooldown_seconds`
+# after its last failed attempt. Any successful fetch resets fail_count.
+COOLDOWN_GRACE_FAILURES = 3       # below this, retry every cycle
+COOLDOWN_BASE_MINUTES = 30        # first cooldown after the grace period
+COOLDOWN_MAX_MINUTES = 24 * 60    # cap
+
+
+def _cooldown_seconds(fail_count: int) -> int:
+    if fail_count < COOLDOWN_GRACE_FAILURES:
+        return 0
+    over = fail_count - COOLDOWN_GRACE_FAILURES
+    minutes = min(COOLDOWN_BASE_MINUTES * (2 ** over), COOLDOWN_MAX_MINUTES)
+    return minutes * 60
+
+
+def _in_cooldown(source: Source, now: datetime) -> bool:
+    cooldown = _cooldown_seconds(source.fail_count)
+    if cooldown == 0 or source.last_fetched_at is None:
+        return False
+    return (now - source.last_fetched_at).total_seconds() < cooldown
 
 
 async def run_once() -> int:
@@ -24,7 +45,17 @@ async def run_once() -> int:
         result = await session.execute(
             select(Source).where(Source.enabled)
         )
-        sources = list(result.scalars().all())
+        all_enabled = list(result.scalars().all())
+
+    now = datetime.now(timezone.utc)
+    sources = [s for s in all_enabled if not _in_cooldown(s, now)]
+    skipped = [s for s in all_enabled if _in_cooldown(s, now)]
+    if skipped:
+        log.info(
+            "Skipping %d sources in cooldown: %s",
+            len(skipped),
+            ", ".join(f"{s.slug}(fail={s.fail_count})" for s in skipped),
+        )
 
     sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
@@ -34,18 +65,18 @@ async def run_once() -> int:
                 try:
                     candidates = await fetch_source(source, http)
                 except Exception as e:
-                    log.exception(f"Failed to fetch source {source.slug} ({type(e).__name__})")
                     fail_count = source.fail_count + 1
-                    new_enabled = fail_count >= FAIL_DISABLE_THRESHOLD
-                    if new_enabled:
-                        log.error(f"Disabling source {source.slug} after {fail_count} failures")
+                    next_try_min = _cooldown_seconds(fail_count) // 60
+                    log.warning(
+                        "Failed to fetch source %s (%s) [fail=%d, next try in ~%dm]",
+                        source.slug, type(e).__name__, fail_count, next_try_min,
+                    )
                     async with async_session_factory() as sess:
                         await sess.execute(
                             update(Source)
                             .where(Source.id == source.id)
                             .values(
                                 fail_count=fail_count,
-                                enabled=not new_enabled,
                                 last_fetched_at=datetime.now(timezone.utc),
                             )
                         )
