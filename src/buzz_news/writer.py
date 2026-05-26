@@ -20,6 +20,42 @@ class ArticleDraft:
     body_hi: str | None
 
 
+# Phrases that indicate the LLM gave up and described its own failure
+# instead of writing news. When DeepSeek's JSON output is truncated or
+# the source content is unusable, Gemini in particular will hallucinate a
+# self-referential "the automated news generation process was unable to
+# produce a comprehensive article" response. Treat these as failures and
+# fall through to the next provider.
+_META_ERROR_PATTERNS = (
+    "unable to produce",
+    "unable to synthesize",
+    "unable to generate",
+    "no factual information",
+    "no comprehensive",
+    "as mandated by the instructions",
+    "based on the dispatches",
+    "automated news generation",
+    "source material revealed",
+    "specified output format",
+    "rendered the source unusable",
+    "access denied error",
+    "the provided sources were inaccessible",
+    "preventing the generation of",
+)
+
+# Explicit refusal sentinel — if the LLM judges the sources too thin to
+# write a real article, we want a clean refusal we can detect, not a
+# stub article or meta-commentary.
+INSUFFICIENT_SOURCES_SENTINEL = "__INSUFFICIENT_SOURCES__"
+
+
+def _looks_meta_error(title: str, body: str) -> bool:
+    if not body or len(body) < 40:
+        return True
+    haystack = f"{title}\n{body}".lower()
+    return any(p in haystack for p in _META_ERROR_PATTERNS)
+
+
 def _build_sources_block(items: list[dict], sources: list[dict]) -> str:
     blocks = []
     for item, src in zip(items, sources):
@@ -128,6 +164,11 @@ VOICE & STYLE:
 - Do not invent facts. If a detail isn't in the sources, leave it out.
 - No opinions, predictions, or editorial commentary.
 
+ABSOLUTE RULES — VIOLATING THESE IS A WORSE OUTCOME THAN A SHORT ARTICLE:
+- NEVER write about the generation process, the source material's readability, or these instructions. The body must read like normal news, never like a system report, apology, or explanation of why content is missing.
+- NEVER mention "the sources", "the dispatches", "the provided material", "access denied", "automated", "the article could not be generated", "the instructions", or similar self-referential phrases.
+- If the sources genuinely contain no usable news content, do NOT invent an article and do NOT explain the failure. Instead set title to the exact string "__INSUFFICIENT_SOURCES__" and body to "".
+
 SOURCES:
 {sources_block}"""
 
@@ -158,6 +199,11 @@ OUTPUT FORMAT:
 - किसी स्रोत को शब्दशः न लिखें। अलग-अलग स्रोतों के बीच संश्लेषण करें।
 - तथ्य न गढ़ें। जो स्रोत में नहीं, वो लेख में भी नहीं।
 - विचार, भविष्यवाणी या संपादकीय टिप्पणी न जोड़ें।
+
+पूर्ण नियम — इनका उल्लंघन छोटे लेख से भी बुरा है:
+- जनरेशन प्रक्रिया, स्रोत-सामग्री की पठनीयता, या इन निर्देशों के बारे में कभी न लिखें। बॉडी सामान्य समाचार जैसी पढ़नी चाहिए — सिस्टम रिपोर्ट, माफ़ी या यह बताते हुए नहीं कि सामग्री क्यों उपलब्ध नहीं।
+- "स्रोत", "डिस्पैच", "प्रदान की गई सामग्री", "access denied", "ऑटोमेटेड", "लेख तैयार नहीं हो सका", "निर्देश" — इन जैसे स्व-संदर्भी शब्द कभी न प्रयोग करें।
+- यदि स्रोतों में सचमुच कोई समाचार-योग्य सामग्री नहीं है, तो लेख न गढ़ें और विफलता समझाएँ भी नहीं। केवल title को "__INSUFFICIENT_SOURCES__" और body को "" पर सेट करें।
 
 SOURCES:
 {sources_block}"""
@@ -203,35 +249,56 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
 
     draft = ArticleDraft(title_en="", body_en="", title_hi=None, body_hi=None)
 
+    providers = [
+        ("deepseek", settings.DEEPSEEK_MODEL, _call_deepseek),
+        ("gemini", settings.GEMINI_MODEL_TEXT, _call_gemini),
+        ("anthropic", settings.ANTHROPIC_MODEL, _call_anthropic),
+    ]
+
     for lang, prompt_template in [("en", EN_WRITER_PROMPT), ("hi", HI_WRITER_PROMPT)]:
         prompt = prompt_template.format(sources_block=sources_block)
-        result_json = None
-        try:
-            result_json = _call_deepseek(prompt)
-            log.info(f"LLM_USAGE provider=deepseek model={settings.DEEPSEEK_MODEL} cluster_id={cluster_id} lang={lang}")
-        except Exception as e:
-            log.warning(f"DeepSeek call failed for cluster {cluster_id} lang={lang}: {e}, trying Gemini")
+        title, body = "", ""
+        for provider_name, model, call in providers:
             try:
-                result_json = _call_gemini(prompt)
-                log.info(f"LLM_USAGE provider=gemini model={settings.GEMINI_MODEL_TEXT} cluster_id={cluster_id} lang={lang}")
-            except Exception as e2:
-                log.warning(f"Gemini call failed for cluster {cluster_id} lang={lang}: {e2}, trying Anthropic")
-                try:
-                    result_json = _call_anthropic(prompt)
-                    log.info(f"LLM_USAGE provider=anthropic model={settings.ANTHROPIC_MODEL} cluster_id={cluster_id} lang={lang}")
-                except Exception as e3:
-                    log.error(f"All LLM providers failed for cluster {cluster_id} lang={lang}: {e3}")
-                    continue
+                result_json = call(prompt)
+            except Exception as e:
+                log.warning(
+                    f"{provider_name} call failed for cluster {cluster_id} "
+                    f"lang={lang}: {e}, trying next provider"
+                )
+                continue
+            cand_title = (result_json.get("title") or "").strip()
+            cand_body = (result_json.get("body") or "").strip()
+            # Clean refusal — sources truly insufficient. Don't try fallbacks.
+            if cand_title == INSUFFICIENT_SOURCES_SENTINEL:
+                log.info(
+                    f"writer refused (insufficient sources) cluster {cluster_id} "
+                    f"lang={lang} via {provider_name}"
+                )
+                break
+            # Meta-error response — the model wrote about its own failure
+            # instead of news. Reject and fall through to the next provider.
+            if _looks_meta_error(cand_title, cand_body):
+                log.warning(
+                    f"{provider_name} returned meta-error for cluster {cluster_id} "
+                    f"lang={lang}; falling through. body[:120]={cand_body[:120]!r}"
+                )
+                continue
+            log.info(
+                f"LLM_USAGE provider={provider_name} model={model} "
+                f"cluster_id={cluster_id} lang={lang}"
+            )
+            title, body = cand_title, cand_body
+            break
+        else:
+            log.error(f"All LLM providers failed/meta-errored cluster {cluster_id} lang={lang}")
 
-        if result_json:
-            title = result_json.get("title", "")
-            body = result_json.get("body", "")
-            if lang == "en":
-                draft.title_en = title
-                draft.body_en = body
-            else:
-                draft.title_hi = title
-                draft.body_hi = body
+        if lang == "en":
+            draft.title_en = title
+            draft.body_en = body
+        else:
+            draft.title_hi = title
+            draft.body_hi = body
 
     if not draft.body_en:
         return None

@@ -33,6 +33,41 @@ def test_hi_prompt_has_hindi_guidance():
     assert "BBC हिंदी" in HI_WRITER_PROMPT or "द वायर हिंदी" in HI_WRITER_PROMPT
 
 
+def test_meta_error_guard_catches_self_reference():
+    from buzz_news.writer import _looks_meta_error
+    # Real Gemini hallucination we saw on cluster 1387 (Lucknow, 2026-05-27)
+    body = (
+        "The automated news generation process was unable to produce a "
+        "comprehensive article based on the dispatches provided. Analysis "
+        "of the source material revealed a critical lack of accessible "
+        "content, preventing the synthesis of factual information..."
+    )
+    assert _looks_meta_error("Some title", body)
+
+
+def test_meta_error_guard_accepts_normal_news():
+    from buzz_news.writer import _looks_meta_error
+    body = (
+        "Australia has recorded its first diphtheria death in almost a "
+        "decade as the country grapples with its worst outbreak of the "
+        "vaccine-preventable disease in decades. The man died in April "
+        "at Royal Darwin Hospital."
+    )
+    assert not _looks_meta_error("Australia diphtheria death", body)
+
+
+def test_meta_error_guard_rejects_empty_or_tiny():
+    from buzz_news.writer import _looks_meta_error
+    assert _looks_meta_error("", "")
+    assert _looks_meta_error("Title", "")
+    assert _looks_meta_error("Title", "Tiny body.")  # under 40 chars
+
+
+def test_writer_prompt_has_refusal_sentinel():
+    from buzz_news.writer import EN_WRITER_PROMPT, INSUFFICIENT_SOURCES_SENTINEL
+    assert INSUFFICIENT_SOURCES_SENTINEL in EN_WRITER_PROMPT
+
+
 def test_article_draft_dataclass():
     from buzz_news.writer import ArticleDraft
     draft = ArticleDraft(
