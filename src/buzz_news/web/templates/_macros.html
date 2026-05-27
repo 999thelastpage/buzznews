@@ -316,10 +316,10 @@
 {% endif %}
 {%- endmacro %}
 
-{# ===== LEGACY SOURCES BLOCK (RETAINED) ===== #}
+{# ===== LEGACY SOURCES BLOCK (RETAINED) — heading reads "Related articles" because cluster items are often nearby stories, not the exact same one #}
 {% macro sources(srcs, lang, labels) -%}
-<section class="src-mos" aria-label="{{ labels.sources }}">
-  <h2 class="src-mos__h">{{ labels.sources or 'Read at sources' }}</h2>
+<section class="src-mos" aria-label="{{ labels.related_articles or labels.sources }}">
+  <h2 class="src-mos__h">{{ labels.related_articles or 'Related articles' }}</h2>
   <div class="src-grid">
     {% for s in srcs[:6] %}
     <a href="{{ s.url }}" class="src-tile" target="_blank" rel="noopener">

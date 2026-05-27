@@ -6,6 +6,7 @@ import numpy as np
 from sqlalchemy import select, update, func, Integer
 
 from buzz_news.db import async_session_factory
+from buzz_news.entities import entities_overlap, extract_entities
 from buzz_news.models import RawItem, Cluster, Source
 from buzz_news.embedder import embed_batch
 from buzz_news.minhash import create_minhash, is_duplicate, MinHashLSH
@@ -14,9 +15,19 @@ from buzz_news.config import get_settings
 settings = get_settings()
 log = logging.getLogger("buzz_news.clusterer")
 
-COSINE_DISTANCE_THRESHOLD = 0.25
+# Tighter than original 0.25 — Phase 8 audit showed the [0.20, 0.25) bucket was
+# the modal attach distance and largely off-event ride-alongs.
+COSINE_DISTANCE_THRESHOLD = 0.18
 RECENT_WINDOW_HOURS = 48
 CENTROID_EMA_ALPHA = 0.2
+# Freeze the centroid after the cluster has this many items. Centroid drift is
+# the main failure mode the audit surfaced — mega-clusters formed by repeated
+# small drifts pulling in nearby-but-eventless items.
+CENTROID_FREEZE_AFTER = 3
+# Hard ceiling — a real news event cluster rarely needs more than ~20 items in
+# 48h; beyond this the cluster is almost always a topic sink (e.g. cluster 598
+# at 1838 items).
+MAX_CLUSTER_SIZE = 25
 MAX_MERGES_PER_SWEEP = 20
 SIMILARITY_MERGE_THRESHOLD = 0.92
 
@@ -73,10 +84,43 @@ def _normalize(v: np.ndarray) -> np.ndarray:
     return v
 
 
+async def _cluster_entities(cluster_id: int, session) -> set[str]:
+    """Aggregate Latin-script entities across a cluster's existing items.
+
+    Pulled lazily and cached by the caller for the duration of one attach
+    decision — items already in a cluster don't change between attaches.
+    """
+    rows = (
+        await session.execute(
+            select(RawItem.title, RawItem.snippet)
+            .where(RawItem.cluster_id == cluster_id)
+            .limit(25)
+        )
+    ).all()
+    ents: set[str] = set()
+    for r in rows:
+        ents |= extract_entities(r.title)
+        ents |= extract_entities(r.snippet)
+    return ents
+
+
 async def _find_nearest_cluster(
     embedding: np.ndarray,
+    candidate_entities: set[str],
     session,
-) -> Optional[tuple[int, np.ndarray]]:
+) -> Optional[tuple[int, np.ndarray, int]]:
+    """Find the closest unpublished cluster within threshold.
+
+    Three new gates on top of the cosine threshold (Phase 8):
+      - size cap: clusters at MAX_CLUSTER_SIZE never attract more items
+      - NER overlap: if both candidate and cluster have Latin entities, require
+        at least one shared entity (Hindi-only / entity-less items fall through
+        to cosine-only)
+      - returns the cluster's current source_count so the caller can decide
+        whether to freeze the centroid
+
+    Returns (cluster_id, centroid, source_count) or None.
+    """
     result = await session.execute(
         select(Cluster)
         .where(Cluster.is_published == False)  # noqa: E712
@@ -91,19 +135,33 @@ async def _find_nearest_cluster(
     best_cluster_id = None
     best_distance = COSINE_DISTANCE_THRESHOLD
     best_centroid = None
+    best_count = 0
+    entity_cache: dict[int, set[str]] = {}
 
     for cluster in clusters:
         if cluster.centroid is None:
             continue
+        if (cluster.source_count or 0) >= MAX_CLUSTER_SIZE:
+            continue
         centroid = np.array(cluster.centroid, dtype=np.float32)
         dist = _cosine_distance(embedding, centroid)
-        if dist < best_distance:
-            best_distance = dist
-            best_cluster_id = cluster.id
-            best_centroid = centroid
+        if dist >= best_distance:
+            continue
+        # NER gate: fires only when both sides have entities. Hindi-only items
+        # and pure-topic clusters (no Latin tokens) fall through to cosine.
+        if candidate_entities:
+            if cluster.id not in entity_cache:
+                entity_cache[cluster.id] = await _cluster_entities(cluster.id, session)
+            cl_ents = entity_cache[cluster.id]
+            if cl_ents and not entities_overlap(cl_ents, candidate_entities):
+                continue
+        best_distance = dist
+        best_cluster_id = cluster.id
+        best_centroid = centroid
+        best_count = cluster.source_count or 0
 
     if best_cluster_id is not None:
-        return (best_cluster_id, best_centroid)
+        return (best_cluster_id, best_centroid, best_count)
     return None
 
 
@@ -200,20 +258,27 @@ async def run_once() -> int:
                     continue
 
         embedding = np.array(item.embedding, dtype=np.float32)
+        candidate_entities = extract_entities(item.title) | extract_entities(item.snippet)
 
         async with async_session_factory() as session:
-            nearest = await _find_nearest_cluster(embedding, session)
+            nearest = await _find_nearest_cluster(embedding, candidate_entities, session)
 
             if nearest is not None:
-                cluster_id, old_centroid = nearest
-                new_centroid = CENTROID_EMA_ALPHA * embedding + (1 - CENTROID_EMA_ALPHA) * old_centroid
-                new_centroid = _normalize(new_centroid)
+                cluster_id, old_centroid, current_count = nearest
+                # Freeze centroid past the first few items so a cluster's anchor
+                # event can't drift into a topic sink (Phase 8 audit finding).
+                if current_count < CENTROID_FREEZE_AFTER:
+                    new_centroid = CENTROID_EMA_ALPHA * embedding + (1 - CENTROID_EMA_ALPHA) * old_centroid
+                    new_centroid = _normalize(new_centroid)
+                    centroid_update = new_centroid.tolist()
+                else:
+                    centroid_update = old_centroid.tolist()
 
                 await session.execute(
                     update(Cluster)
                     .where(Cluster.id == cluster_id)
                     .values(
-                        centroid=new_centroid.tolist(),
+                        centroid=centroid_update,
                         last_seen_at=now,
                     )
                 )

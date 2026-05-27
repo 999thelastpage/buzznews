@@ -11,6 +11,7 @@ region: Region
 published_at: Published
 source: Source
 sources: Sources
+related_articles: Related articles
 back_to_home: Back to Home
 no_articles: No articles available
 loading: Loading...

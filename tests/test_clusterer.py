@@ -1,6 +1,27 @@
 import numpy as np
 
-from buzz_news.clusterer import _cosine_distance, _normalize
+from buzz_news.clusterer import (
+    CENTROID_FREEZE_AFTER,
+    COSINE_DISTANCE_THRESHOLD,
+    MAX_CLUSTER_SIZE,
+    _cosine_distance,
+    _normalize,
+)
+
+
+def test_threshold_phase8_value():
+    # Audit showed [0.20, 0.25) was the modal attach bucket and largely
+    # off-event ride-alongs. Locked at 0.18 unless re-audited.
+    assert COSINE_DISTANCE_THRESHOLD == 0.18
+
+
+def test_centroid_freeze_after_value():
+    # Locked at 3 — the first three items define the event.
+    assert CENTROID_FREEZE_AFTER == 3
+
+
+def test_max_cluster_size_value():
+    assert MAX_CLUSTER_SIZE == 25
 
 
 def test_cosine_distance_same_vectors():
