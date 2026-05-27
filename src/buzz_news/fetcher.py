@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from buzz_news.db import async_session_factory
@@ -118,11 +118,29 @@ async def run_once() -> int:
                 async with async_session_factory() as sess:
                     for item in items_to_insert:
                         try:
-                            await sess.execute(
-                                pg_insert(RawItem).values(**item).on_conflict_do_nothing(
-                                    constraint="raw_items_source_id_external_id_key"
-                                )
+                            # In-place upsert when the new body is strictly
+                            # longer than what we have stored. Captures
+                            # NDTV-style "Live Updates" pages where the URL
+                            # stays stable but the body grows. The refreshed
+                            # fetched_at lifts cluster velocity on the next
+                            # score tick (see scorer.py:_velocity_diff).
+                            # Same-length re-fetches don't move fetched_at, so
+                            # they don't falsely inflate velocity.
+                            stmt = pg_insert(RawItem).values(**item)
+                            stmt = stmt.on_conflict_do_update(
+                                constraint="raw_items_source_id_external_id_key",
+                                set_={
+                                    "body": stmt.excluded.body,
+                                    "snippet": stmt.excluded.snippet,
+                                    "title": stmt.excluded.title,
+                                    "fetched_at": stmt.excluded.fetched_at,
+                                },
+                                where=(
+                                    func.coalesce(func.length(RawItem.body), 0)
+                                    < func.length(func.coalesce(stmt.excluded.body, ""))
+                                ),
                             )
+                            await sess.execute(stmt)
                         except Exception as ex:
                             log.debug(f"Skipping duplicate/error for {item.get('url', 'unknown')[:80]}: {ex}")
                     await sess.commit()

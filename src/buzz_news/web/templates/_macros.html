@@ -33,16 +33,21 @@
 {% endif %}
 {%- endmacro %}
 
-{# ===== SPARKLINE SVG ===== #}
+{# ===== SPARKLINE SVG =====
+   `data` is a list of {score, ts} dicts. Each vertex gets an invisible 4px
+   <circle> that triggers a tooltip via /js/sparkline.js. Tooltip styles are
+   in _inline_styles.html (.sparkline-tooltip). #}
 {% macro sparkline(data, category) -%}
 {% if data and data|length > 1 %}
-  {% set max_val = data|max %}
-  {% set min_val = data|min %}
+  {% set scores = data | map(attribute='score') | list %}
+  {% set max_val = scores | max %}
+  {% set min_val = scores | min %}
   {% set range_val = max_val - min_val %}
   {% set range_val = range_val if range_val > 0 else 1.0 %}
   {% set c_pref = cat_prefix(category) %}
   <svg width="60" height="16" class="sparkline" style="overflow: visible; opacity: 0.7; margin-left: 8px; vertical-align: middle; display: inline-block;">
-    <polyline points="{% for val in data %}{% set x = (loop.index0 / (data|length - 1)) * 60 %}{% set y = 16 - ((val - min_val) / range_val) * 16 %}{{ x|round(1) }},{{ y|round(1) }}{% if not loop.last %} {% endif %}{% endfor %}" fill="none" stroke="var(--c-{{ c_pref }})" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <polyline points="{% for pt in data %}{% set x = (loop.index0 / (data|length - 1)) * 60 %}{% set y = 16 - ((pt.score - min_val) / range_val) * 16 %}{{ x|round(1) }},{{ y|round(1) }}{% if not loop.last %} {% endif %}{% endfor %}" fill="none" stroke="var(--c-{{ c_pref }})" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    {% for pt in data %}{% set x = (loop.index0 / (data|length - 1)) * 60 %}{% set y = 16 - ((pt.score - min_val) / range_val) * 16 %}<circle cx="{{ x|round(1) }}" cy="{{ y|round(1) }}" r="4" fill="transparent" class="sparkline__pt" data-score="{{ pt.score|round(3) }}" data-ts="{{ pt.ts }}" />{% endfor %}
   </svg>
 {% endif %}
 {%- endmacro %}
@@ -120,6 +125,7 @@
       </div>
     </div>
     <script src="/js/ticker.js" defer></script>
+    <script src="/js/sparkline.js" defer></script>
     {% endif %}
 
     {# Metadata & Theme Toggler #}

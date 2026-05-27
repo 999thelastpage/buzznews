@@ -311,6 +311,48 @@ html.dark .tile, html.dark .tile-lg {
 .k-biz   { color: var(--c-biz); } .s-biz   { background-color: var(--c-biz); }
 .k-cult  { color: var(--c-cult); } .s-cult  { background-color: var(--c-cult); }
 
+/* Sparkline hover targets — invisible but cursor-grabbing. */
+.sparkline__pt { cursor: pointer; }
+.sparkline__pt:hover { fill: var(--ink-muted); fill-opacity: 0.35; }
+
+/* Sparkline hover tooltip (built by /js/sparkline.js, positioned via JS). */
+.sparkline-tooltip {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--grid-line);
+  padding: 8px 10px;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.35;
+  min-width: 110px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  border-radius: 3px;
+}
+html.dark .sparkline-tooltip { box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+.sparkline-tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sparkline-tooltip__k {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.sparkline-tooltip__v {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.sparkline-tooltip__dir {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--grid-line);
+  color: var(--ink-muted);
+}
+
 /* Daily Brief Layout */
 .brief-header {
   display: flex;

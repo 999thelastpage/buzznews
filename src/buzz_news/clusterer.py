@@ -197,6 +197,34 @@ async def _update_cluster_counters(cluster_id: int, session) -> None:
         )
     )
 
+    # Category recompute: pick the highest authority-weighted non-"general"
+    # category from the cluster's sources. Catalog "general" is a catch-all
+    # for NDTV / Google News / Aaj Tak that publish across topics; letting it
+    # outvote a specialty source (Hindu Sport, BBC Tech) would defeat the
+    # purpose. If no specialty source is attached, the existing category
+    # (set at cluster creation from the first source) is kept.
+    cat_row = (
+        await session.execute(
+            select(
+                Source.category,
+                func.sum(Source.authority).label("w"),
+            )
+            .select_from(RawItem)
+            .join(Source, RawItem.source_id == Source.id)
+            .where(RawItem.cluster_id == cluster_id)
+            .where(Source.category != "general")
+            .group_by(Source.category)
+            .order_by(func.sum(Source.authority).desc())
+            .limit(1)
+        )
+    ).fetchone()
+    if cat_row:
+        await session.execute(
+            update(Cluster)
+            .where(Cluster.id == cluster_id)
+            .values(category=cat_row.category)
+        )
+
 
 async def run_once() -> int:
     async with async_session_factory() as session:

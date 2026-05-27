@@ -240,17 +240,75 @@ def _extract_why_it_matters(summary: str | None, lang: str) -> str:
     return ""
 
 
-def _get_trending_data(cluster_id: int, current_score: float, scores_by_cluster: dict[int, list[float]]) -> list[float]:
+def _get_trending_data(
+    cluster_id: int,
+    current_score: float,
+    scores_by_cluster: dict[int, list[tuple[float, datetime]]],
+) -> list[dict]:
+    """Returns last ≤10 score samples shaped for the sparkline + hover tooltip.
+
+    Each sample is {"score": float, "ts": ISO-8601 UTC str}. With <2 samples
+    we emit two synthetic copies of `current_score` so the polyline still
+    renders as a flat line."""
     trending = scores_by_cluster.get(cluster_id, [])
     if len(trending) < 2:
         s_val = float(current_score or 0.0)
-        return [s_val, s_val]
-    return [float(x) for x in trending[-10:]]
+        ts = datetime.now(timezone.utc).isoformat()
+        return [{"score": s_val, "ts": ts}, {"score": s_val, "ts": ts}]
+    return [
+        {"score": float(s), "ts": (t.isoformat() if t else "")}
+        for (s, t) in trending[-10:]
+    ]
+
+
+def _diversify_rerank(rows: list, slots: int) -> list:
+    """Greedy category-aware re-rank for the homepage tile grid.
+
+    Keeps row[0] (lead) untouched, then fills positions 1..slots-1 with the
+    next-highest-scored row whose category is still under its quota. Quota is
+    max(2, ceil((slots-1) / num_categories_present)). Falls back to score
+    order if quota is exhausted. Combined with clusterer's category recompute,
+    this surfaces 4-6 categories on the homepage where the unfiltered top-N
+    sits at 2."""
+    if not rows or slots <= 1:
+        return rows[:slots]
+
+    lead = rows[0]
+    rest = rows[1:]
+    cats_in_pool = {(r.category or "general") for r in rest}
+    if not cats_in_pool:
+        return [lead] + rest[: slots - 1]
+
+    import math
+    quota = max(2, math.ceil((slots - 1) / len(cats_in_pool)))
+
+    picked = [lead]
+    counts: dict[str, int] = {(lead.category or "general"): 1}
+    skipped: list = []
+
+    for r in rest:
+        if len(picked) >= slots:
+            break
+        cat = r.category or "general"
+        if counts.get(cat, 0) < quota:
+            picked.append(r)
+            counts[cat] = counts.get(cat, 0) + 1
+        else:
+            skipped.append(r)
+
+    # Fallback: top up from skipped in original score order if quota left us short.
+    while len(picked) < slots and skipped:
+        picked.append(skipped.pop(0))
+
+    return picked
 
 
 async def render_home_pages(limit: int = 15) -> int:
     """Render <STATIC_DIR>/{en,hi}/index.html with the top N published articles.
-    Returns the number of language files written."""
+    Returns the number of language files written.
+
+    Over-fetches 2× and runs `_diversify_rerank` so the top-scored cluster
+    stays as the lead but the remaining tiles are spread across categories."""
     async with async_session_factory() as session:
         # Cluster.category is more current than Article.category (the latter
         # is frozen at publish time; clusters get re-categorized later).
@@ -275,9 +333,9 @@ async def render_home_pages(limit: int = 15) -> int:
             .join(Cluster, Article.cluster_id == Cluster.id)
             .where(*[~Article.title_en.contains(p) for p in garbage_phrases])
             .order_by(Cluster.current_score.desc())
-            .limit(limit)
+            .limit(limit * 2)
         )
-        rows = result.fetchall()
+        rows = _diversify_rerank(result.fetchall(), limit)
 
         if not rows:
             log.warning("render_home_pages: no verified articles to render")
@@ -308,15 +366,21 @@ async def render_home_pages(limit: int = 15) -> int:
                     "title": title or "",
                 })
 
-        # Fetch historical composite scores for trending sparklines
+        # Fetch historical composite scores + timestamps for trending
+        # sparklines. The timestamp powers the hover tooltip's "3h ago" line
+        # (see web/static/js/sparkline.js).
         scores_result = await session.execute(
-            select(ClusterScore.cluster_id, ClusterScore.composite)
+            select(
+                ClusterScore.cluster_id,
+                ClusterScore.composite,
+                ClusterScore.computed_at,
+            )
             .where(ClusterScore.cluster_id.in_(cluster_ids))
             .order_by(ClusterScore.cluster_id, ClusterScore.computed_at.asc())
         )
-        scores_by_cluster = {}
-        for c_id, comp in scores_result.fetchall():
-            scores_by_cluster.setdefault(c_id, []).append(float(comp))
+        scores_by_cluster: dict[int, list[tuple[float, datetime]]] = {}
+        for c_id, comp, ts in scores_result.fetchall():
+            scores_by_cluster.setdefault(c_id, []).append((float(comp), ts))
 
     def _to_dict(row, lang: str) -> dict | None:
         if lang == "hi" and not row.title_hi:

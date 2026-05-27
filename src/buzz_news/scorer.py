@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import pow
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from buzz_news.db import async_session_factory
-from buzz_news.models import Cluster, ClusterScore
+from buzz_news.models import Cluster, ClusterScore, RawItem
 from buzz_news.config import get_settings
 
 settings = get_settings()
@@ -91,9 +91,22 @@ async def score_all_recent(window_hours: int = 48) -> int:
             )
             prev_score = prev_result.scalar_one_or_none()
 
-            new_sources = 0
-            if not prev_score:
-                new_sources = cluster.source_count
+            if prev_score:
+                # Velocity = new items (any source) since the last score tick.
+                # Same-source follow-ups count too — that's the user-visible
+                # signal for breaking-story development. Re-fetches that grow
+                # an existing body bump RawItem.fetched_at via fetcher's
+                # on_conflict_do_update, so they also lift velocity.
+                new_count_row = await session.execute(
+                    select(func.count(RawItem.id))
+                    .where(RawItem.cluster_id == cluster.id)
+                    .where(RawItem.fetched_at > prev_score.computed_at)
+                )
+                new_sources = int(new_count_row.scalar() or 0)
+            else:
+                # Ignition: first-ever score for this cluster — treat the
+                # initial item count as fully new.
+                new_sources = cluster.source_count or 0
 
             breakdown = compute_score(
                 distinct_sources=cluster.distinct_sources or 0,
