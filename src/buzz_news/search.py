@@ -123,7 +123,7 @@ async def hybrid_search(query: str, lang: str = "en", limit: int = 30) -> list[d
             )
             SELECT a.id, a.slug, a.title_en, a.title_hi,
                    a.summary_en, a.summary_hi,
-                   c.category AS category, a.region,
+                   a.category AS category, a.region,
                    a.hero_image_url, a.published_at,
                    COALESCE(q_fts.rank, 0) * {W_FTS} + COALESCE(q_vec.sim, 0) * {W_VEC} AS combined,
                    c.source_count
@@ -141,7 +141,7 @@ async def hybrid_search(query: str, lang: str = "en", limit: int = 30) -> list[d
         sql = text(f"""
             SELECT a.id, a.slug, a.title_en, a.title_hi,
                    a.summary_en, a.summary_hi,
-                   c.category AS category, a.region,
+                   a.category AS category, a.region,
                    a.hero_image_url, a.published_at,
                    ts_rank_cd(a.search_vector, plainto_tsquery('simple', :q)) AS combined,
                    c.source_count

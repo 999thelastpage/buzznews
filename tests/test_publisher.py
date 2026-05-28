@@ -38,7 +38,10 @@ def test_render_home_produces_tiles():
                 {"name": "BBC", "url": "https://bbc.com", "title": "BBC Story"},
                 {"name": "AFP", "url": "https://afp.com", "title": "AFP Story"},
             ],
-            "trending_data": [0.5, 0.82],
+            "trending_data": [
+                {"score": 0.5, "ts": "2026-05-25T10:00:00+00:00"},
+                {"score": 0.82, "ts": "2026-05-25T12:00:00+00:00"},
+            ],
             "why_it_matters": "Why Alpha matters.",
         },
         {
@@ -57,7 +60,10 @@ def test_render_home_produces_tiles():
                 {"name": "The Verge", "url": "https://theverge.com", "title": "Verge Story"},
                 {"name": "Wired", "url": "https://wired.com", "title": "Wired Story"},
             ],
-            "trending_data": [0.3, 0.5],
+            "trending_data": [
+                {"score": 0.3, "ts": "2026-05-25T10:00:00+00:00"},
+                {"score": 0.5, "ts": "2026-05-25T12:00:00+00:00"},
+            ],
             "why_it_matters": "Why Beta matters.",
         },
     ]

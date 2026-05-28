@@ -79,3 +79,41 @@ def test_article_draft_dataclass():
     assert draft.title_en == "Test Title"
     assert draft.body_hi == "परीक्षण सामग्री"
     assert draft.title_hi == "परीक्षण शीर्षक"
+    # category is optional and defaults to None (caller falls back to the
+    # cluster's catalog category when the writer didn't classify).
+    assert draft.category is None
+
+
+def test_validate_category_accepts_all_enum_values():
+    from buzz_news.writer import VALID_CATEGORIES, _validate_category
+    for cat in VALID_CATEGORIES:
+        assert _validate_category(cat) == cat
+    # case-insensitive, whitespace-tolerant
+    assert _validate_category("  Sports ") == "sports"
+    assert _validate_category("TECH") == "tech"
+
+
+def test_validate_category_rejects_unknown():
+    from buzz_news.writer import _validate_category
+    assert _validate_category("entertainment") is None
+    assert _validate_category("science") is None
+    assert _validate_category("world news") is None
+    assert _validate_category("") is None
+    assert _validate_category(None) is None
+
+
+def test_en_prompt_requests_category():
+    from buzz_news.writer import EN_WRITER_PROMPT, VALID_CATEGORIES
+    # output schema now includes the category field
+    assert '"category": string' in EN_WRITER_PROMPT
+    assert "CATEGORY:" in EN_WRITER_PROMPT
+    # every enum value the templates support is offered to the model
+    for cat in VALID_CATEGORIES:
+        assert f'"{cat}"' in EN_WRITER_PROMPT
+
+
+def test_hi_prompt_does_not_request_category():
+    # HI shares the cluster's category (taken from the EN pass); asking twice
+    # risks the two languages disagreeing.
+    from buzz_news.writer import HI_WRITER_PROMPT
+    assert "CATEGORY:" not in HI_WRITER_PROMPT

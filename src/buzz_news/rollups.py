@@ -43,7 +43,7 @@ async def build_monthly(year: int, month: int) -> None:
                 Article.slug,
                 Article.title_en,
                 Article.title_hi,
-                Cluster.category.label("category"),
+                Article.category.label("category"),
                 Article.region,
                 Article.hero_image_url,
                 Article.published_at,

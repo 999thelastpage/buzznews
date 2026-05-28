@@ -310,8 +310,9 @@ async def render_home_pages(limit: int = 15) -> int:
     Over-fetches 2× and runs `_diversify_rerank` so the top-scored cluster
     stays as the lead but the remaining tiles are spread across categories."""
     async with async_session_factory() as session:
-        # Cluster.category is more current than Article.category (the latter
-        # is frozen at publish time; clusters get re-categorized later).
+        # Article.category is the writer's content-derived classification,
+        # set at publish time (writer.py). It's authoritative for rendering;
+        # Cluster.category is only the catalog-vote fallback used pre-publish.
         # Skip articles whose title screams "LLM extraction failure".
         garbage_phrases = ("Unavailable", "Access Restrictions", "Inaccessible")
         result = await session.execute(
@@ -322,7 +323,7 @@ async def render_home_pages(limit: int = 15) -> int:
                 Article.title_hi,
                 Article.summary_en,
                 Article.summary_hi,
-                Cluster.category.label("category"),
+                Article.category.label("category"),
                 Article.region,
                 Article.hero_image_url,
                 Article.published_at,
@@ -445,7 +446,7 @@ async def render_home_pages(limit: int = 15) -> int:
                 Article.slug,
                 Article.title_en,
                 Article.title_hi,
-                Cluster.category.label("category"),
+                Article.category.label("category"),
                 Article.published_at,
                 Cluster.current_score,
             )
@@ -514,7 +515,7 @@ async def render_today_pages(limit: int = 500) -> int:
                 Article.title_hi,
                 Article.summary_en,
                 Article.summary_hi,
-                Cluster.category.label("category"),
+                Article.category.label("category"),
                 Article.region,
                 Article.hero_image_url,
                 Article.published_at,
@@ -689,8 +690,12 @@ async def publish_top_n(n: int = 10) -> int:
                 .where(Cluster.id == cluster.id)
             )
             cat_row = cat_result.fetchone()
-            category = cat_row[0] if cat_row else "general"
+            cluster_category = cat_row[0] if cat_row else "general"
             region = cat_row[1] if cat_row else "GLOBAL"
+            # Writer's content-derived category wins; fall back to the
+            # cluster's catalog-vote category only when the writer didn't
+            # classify (off-enum, omitted, or all providers failed).
+            category = draft.category or cluster_category
 
         async with async_session_factory() as session:
             rows_result = await session.execute(

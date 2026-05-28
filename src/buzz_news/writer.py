@@ -18,6 +18,31 @@ class ArticleDraft:
     body_en: str
     title_hi: str | None
     body_hi: str | None
+    category: str | None = None
+
+
+# The categories the templates know how to colour/label (_macros.html
+# cat_c/cat_k/cat_name; anything else falls back to "general"). The writer
+# is constrained to exactly these on the EN pass.
+VALID_CATEGORIES = (
+    "international",
+    "politics",
+    "business",
+    "tech",
+    "sports",
+    "culture",
+    "general",
+)
+
+
+def _validate_category(raw: str | None) -> str | None:
+    """Return the category iff it's one the templates support, else None.
+    None (not "general") so the caller can fall back to the cluster's catalog
+    category instead of silently forcing every unclassified article to general."""
+    if not raw:
+        return None
+    cleaned = raw.strip().lower()
+    return cleaned if cleaned in VALID_CATEGORIES else None
 
 
 # Phrases that indicate the LLM gave up and described its own failure
@@ -119,7 +144,7 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) 
             "temperature": temperature,
             "max_output_tokens": max_tokens,
             "response_mime_type": "application/json",
-            "response_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}, "required": ["title", "body"]},
+            "response_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}, "category": {"type": "string"}}, "required": ["title", "body"]},
         },
     )
     return _parse_json_tolerant(response.text)
@@ -140,11 +165,22 @@ def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 240
 EN_WRITER_PROMPT = """You are a senior news editor writing a self-contained article for a daily news site, in English. You're given several source dispatches covering the same event. Your job is to produce one polished, readable piece that someone can read on its own without clicking through to the sources.
 
 OUTPUT FORMAT:
-- Output strictly valid JSON: {{"title": string, "body": string}}
+- Output strictly valid JSON: {{"title": string, "body": string, "category": string}}
 - Output JSON only. No prose before or after.
 
 TITLE:
 - 6–12 words, sentence case, no clickbait, no question marks, no colons unless they read naturally.
+
+CATEGORY:
+- Set "category" to the single best fit for what the article is actually about, chosen from EXACTLY this list (lowercase, no other values):
+  - "politics" — government, elections, parliament, policy, diplomacy within a country
+  - "international" — cross-border / world affairs, conflicts, foreign relations, global events
+  - "business" — companies, markets, economy, finance, trade, jobs
+  - "tech" — technology, software, AI, gadgets, science-of-computing, startups
+  - "sports" — any sport or competitive game (cricket, football, tennis, chess, Olympics, motorsport, etc.) and its players, matches, leagues
+  - "culture" — entertainment, film, music, arts, books, religion, lifestyle, festivals
+  - "general" — only if none of the above clearly fits
+- Pick based on the story's substance, not the publisher. One value only.
 
 BODY:
 - Target 280–360 words. Never under 220 words. Write in 3–5 paragraphs, separated by blank lines.
@@ -257,7 +293,7 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
 
     for lang, prompt_template in [("en", EN_WRITER_PROMPT), ("hi", HI_WRITER_PROMPT)]:
         prompt = prompt_template.format(sources_block=sources_block)
-        title, body = "", ""
+        title, body, category = "", "", None
         for provider_name, model, call in providers:
             try:
                 result_json = call(prompt)
@@ -289,6 +325,9 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
                 f"cluster_id={cluster_id} lang={lang}"
             )
             title, body = cand_title, cand_body
+            # Only the EN prompt asks for a category; the HI pass shares it.
+            if lang == "en":
+                category = _validate_category(result_json.get("category"))
             break
         else:
             log.error(f"All LLM providers failed/meta-errored cluster {cluster_id} lang={lang}")
@@ -296,6 +335,7 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
         if lang == "en":
             draft.title_en = title
             draft.body_en = body
+            draft.category = category
         else:
             draft.title_hi = title
             draft.body_hi = body

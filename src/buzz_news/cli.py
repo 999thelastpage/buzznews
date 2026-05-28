@@ -212,7 +212,10 @@ async def cmd_write_once(args) -> int:
         if not draft:
             log.warning(f"No draft generated for cluster {cluster.id}")
             continue
-        log.info(f"Wrote article for cluster {cluster.id}: EN title='{draft.title_en}'")
+        log.info(
+            f"Wrote article for cluster {cluster.id}: "
+            f"category={draft.category} EN title='{draft.title_en}'"
+        )
         written += 1
 
     log.info(f"Write cycle complete: {written} articles drafted")
