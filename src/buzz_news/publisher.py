@@ -174,6 +174,17 @@ def _format_date(dt: datetime, lang: str) -> str:
     return en_str
 
 
+def _format_datetime(dt: datetime, lang: str) -> str:
+    """Absolute publish date + time in IST, e.g. '28 May 2026, 3:45 PM IST'.
+    DB timestamps are UTC; convert to Asia/Kolkata for display per convention."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    en_str = dt.astimezone(IST).strftime("%d %b %Y, %-I:%M %p IST")
+    if lang == "hi":
+        return en_str.translate(_DEVANAGARI)
+    return en_str
+
+
 def _render_article(
     article_id: int,
     lang: str,
@@ -207,6 +218,8 @@ def _render_article(
             "hero_image_credit": image_credit,
             "source_count": len(article_sources),
             "sources": article_sources,
+            "published_display": _format_datetime(published_at, lang),
+            "published_iso": published_at.isoformat() if published_at else "",
         },
         is_hot=is_hot,
         body_paragraphs=[p.strip() for p in body.split("\n\n") if p.strip()],

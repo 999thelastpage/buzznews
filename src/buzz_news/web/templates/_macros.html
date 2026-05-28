@@ -302,7 +302,7 @@
 <header class="article__head" style="--c-intl: var(--c-{{ cat_prefix(c) }});">
   <div class="article__kicker">
     {% if is_hot %}<span class="hot" aria-hidden="true"></span>{% endif %}
-    {{ cat_name(c, labels) }}{% if is_hot %} · Buzz{% endif %}
+    {{ cat_name(c, labels) }}{% if is_hot %} · Buzz{% endif %}{% if art.published_display %} · <time class="article__kicker-time" datetime="{{ art.published_iso }}">{{ art.published_display }}</time>{% endif %}
   </div>
   <h1 class="article__title">{{ title }}</h1>
   <p class="article__byline">

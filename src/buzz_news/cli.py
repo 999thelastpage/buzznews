@@ -100,6 +100,10 @@ async def cmd_deploy_static(args) -> int:
         ("js/ticker.js", "js/ticker.js"),
         ("js/theme.js", "js/theme.js"),
         ("js/sparkline.js", "js/sparkline.js"),
+        ("js/localtime.js", "js/localtime.js"),
+        ("favicon.svg", "favicon.svg"),
+        ("favicon.ico", "favicon.ico"),
+        ("apple-touch-icon.png", "apple-touch-icon.png"),
     ]
     copied = 0
     for src_rel, dst_rel in pairs:
