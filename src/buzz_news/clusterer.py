@@ -3,12 +3,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import numpy as np
-from sqlalchemy import select, update, func, Integer
+from sqlalchemy import select, update, func, Integer, or_
 
 from buzz_news.db import async_session_factory
 from buzz_news.entities import entities_overlap, extract_entities
-from buzz_news.models import RawItem, Cluster, Source
-from buzz_news.embedder import embed_batch
+from buzz_news.models import RawItem, Cluster, Source, Article
+from buzz_news.embedder import active_embedding_identity, embed_batch_with_usage, estimate_tokens
+from buzz_news.embedding_budget import remaining_embedding_tokens, record_embedding_usage
 from buzz_news.minhash import create_minhash, is_duplicate, MinHashLSH
 from buzz_news.config import get_settings
 
@@ -33,11 +34,22 @@ SIMILARITY_MERGE_THRESHOLD = 0.92
 
 
 async def embed_unclustered_items() -> int:
+    identity = active_embedding_identity()
     async with async_session_factory() as session:
         result = await session.execute(
             select(RawItem)
-            .where(RawItem.embedding.is_(None))
+            .where(RawItem.cluster_id.is_(None))
             .where(RawItem.body.isnot(None) | RawItem.snippet.isnot(None))
+            .where(
+                or_(
+                    RawItem.embedding.is_(None),
+                    RawItem.embedding_provider.is_(None),
+                    RawItem.embedding_provider != identity.provider,
+                    RawItem.embedding_model != identity.model,
+                    RawItem.embedding_dim != identity.dim,
+                )
+            )
+            .order_by(RawItem.fetched_at.desc())
             .limit(500)
         )
         items = list(result.scalars().all())
@@ -45,32 +57,53 @@ async def embed_unclustered_items() -> int:
     if not items:
         return 0
 
+    remaining = await remaining_embedding_tokens(identity.provider, identity.model)
+    if remaining <= 0:
+        log.warning("Skipping raw embeddings: daily embedding budget is exhausted")
+        return 0
+
     texts = []
     item_ids = []
+    used_estimate = 0
     for item in items:
         title = item.title or ""
         body = (item.body or "")[:1000]
         snippet = (item.snippet or "")[:500]
         text = f"{title}. {body or snippet}"
+        est = estimate_tokens(text)
+        if used_estimate + est > remaining:
+            continue
         texts.append(text)
         item_ids.append(item.id)
+        used_estimate += est
+
+    if not texts:
+        log.warning("Skipping raw embeddings: no pending item fits remaining daily budget")
+        return 0
 
     try:
-        embeddings = embed_batch(texts)
+        result = embed_batch_with_usage(texts)
     except Exception as e:
         log.error(f"Embedding failed: {e}")
         return 0
 
+    await record_embedding_usage(result.usage, "RETRIEVAL_DOCUMENT")
+
     async with async_session_factory() as session:
-        for item_id, embedding in zip(item_ids, embeddings):
+        for item_id, embedding in zip(item_ids, result.vectors):
             await session.execute(
                 update(RawItem)
                 .where(RawItem.id == item_id)
-                .values(embedding=embedding.tolist())
+                .values(
+                    embedding=embedding.tolist(),
+                    embedding_provider=identity.provider,
+                    embedding_model=identity.model,
+                    embedding_dim=identity.dim,
+                )
             )
         await session.commit()
 
-    return len(items)
+    return len(item_ids)
 
 
 def _cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
@@ -122,13 +155,7 @@ async def _find_nearest_cluster(
     Returns (cluster_id, centroid, source_count) or None.
     """
     result = await session.execute(
-        select(Cluster)
-        .where(Cluster.is_published == False)  # noqa: E712
-        .where(
-            Cluster.last_seen_at
-            >= datetime.now(timezone.utc).replace(microsecond=0)
-            - timedelta(hours=RECENT_WINDOW_HOURS)
-        )
+        _candidate_cluster_stmt(datetime.now(timezone.utc).replace(microsecond=0))
     )
     clusters = list(result.scalars().all())
 
@@ -163,6 +190,25 @@ async def _find_nearest_cluster(
     if best_cluster_id is not None:
         return (best_cluster_id, best_centroid, best_count)
     return None
+
+
+def _candidate_cluster_stmt(now: datetime):
+    """Clusters that may attract a new item.
+
+    `is_published` is overloaded: a real published cluster has an Article row,
+    while a sanity-sweep victim is also marked published as a tombstone. Allow
+    the former to keep gathering source updates, but never resurrect the latter.
+    """
+    identity = active_embedding_identity()
+    return (
+        select(Cluster)
+        .outerjoin(Article, Article.cluster_id == Cluster.id)
+        .where(or_(Cluster.is_published == False, Article.id.isnot(None)))  # noqa: E712
+        .where(Cluster.last_seen_at >= now - timedelta(hours=RECENT_WINDOW_HOURS))
+        .where(Cluster.centroid_provider == identity.provider)
+        .where(Cluster.centroid_model == identity.model)
+        .where(Cluster.centroid_dim == identity.dim)
+    )
 
 
 async def _update_cluster_counters(cluster_id: int, session) -> None:
@@ -227,10 +273,14 @@ async def _update_cluster_counters(cluster_id: int, session) -> None:
 
 
 async def run_once() -> int:
+    identity = active_embedding_identity()
     async with async_session_factory() as session:
         result = await session.execute(
             select(RawItem)
             .where(RawItem.embedding.isnot(None))
+            .where(RawItem.embedding_provider == identity.provider)
+            .where(RawItem.embedding_model == identity.model)
+            .where(RawItem.embedding_dim == identity.dim)
             .where(RawItem.cluster_id.is_(None))
             .limit(500)
         )
@@ -321,8 +371,12 @@ async def run_once() -> int:
                 clustered_count += 1
                 log.debug(f"Item {item.id} attached to cluster {cluster_id}")
             else:
+                identity = active_embedding_identity()
                 new_cluster = Cluster(
                     centroid=embedding.tolist(),
+                    centroid_provider=identity.provider,
+                    centroid_model=identity.model,
+                    centroid_dim=identity.dim,
                     first_seen_at=now,
                     last_seen_at=now,
                     source_count=1,
@@ -367,8 +421,13 @@ async def run_once() -> int:
 async def sanity_sweep() -> int:
     merged = 0
     async with async_session_factory() as session:
+        identity = active_embedding_identity()
         result = await session.execute(
-            select(Cluster).where(Cluster.centroid.isnot(None))
+            select(Cluster)
+            .where(Cluster.centroid.isnot(None))
+            .where(Cluster.centroid_provider == identity.provider)
+            .where(Cluster.centroid_model == identity.model)
+            .where(Cluster.centroid_dim == identity.dim)
         )
         clusters = list(result.scalars().all())
 

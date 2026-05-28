@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 import numpy as np
+from sqlalchemy.dialects import postgresql
 
 from buzz_news.clusterer import (
     CENTROID_FREEZE_AFTER,
@@ -6,6 +9,7 @@ from buzz_news.clusterer import (
     MAX_CLUSTER_SIZE,
     _cosine_distance,
     _normalize,
+    _candidate_cluster_stmt,
 )
 
 
@@ -55,3 +59,24 @@ def test_normalize_zero_vector():
     v = np.array([0.0, 0.0], dtype=np.float32)
     normalized = _normalize(v)
     assert np.all(np.isnan(normalized)) or np.all(normalized == 0.0)
+
+
+def test_candidate_cluster_stmt_allows_article_backed_published_clusters():
+    sql = str(
+        _candidate_cluster_stmt(datetime(2026, 5, 28, tzinfo=timezone.utc)).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "LEFT OUTER JOIN articles" in sql
+    assert "clusters.is_published = false OR articles.id IS NOT NULL" in sql
+
+
+def test_candidate_cluster_stmt_keeps_recent_window():
+    sql = str(
+        _candidate_cluster_stmt(datetime(2026, 5, 28, tzinfo=timezone.utc)).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "clusters.last_seen_at >= '2026-05-26 00:00:00+00:00'" in sql

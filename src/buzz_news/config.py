@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     GEMINI_MODEL_TEXT: str = "gemini-2.0-flash"
     GEMINI_MODEL_EMBED: str = "gemini-embedding-001"
     EMBED_DIM: int = 768
+    EMBED_PROVIDER: str = "openai"
+
+    OPENAI_API_KEY: str = ""
+    OPENAI_EMBED_MODEL: str = "text-embedding-3-small"
+    OPENAI_EMBED_DIM: int = 768
+    MAX_DAILY_EMBED_TOKENS: int = 1_500_000
+    GEMINI_FALLBACK_DAILY_CAP: int = 5
 
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"

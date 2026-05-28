@@ -1,8 +1,8 @@
 """Hybrid (Postgres FTS + pgvector) search over published articles.
 
-Cost-bounded by design: every unique query embeds exactly once forever
-via search_query_cache, and a daily budget guard caps fresh embeddings
-at MAX_DAILY_EMBEDS (≈ $0.075/day at Gemini's $0.00015/embed).
+Cost-bounded by design: every unique query embeds once per active
+provider/model via search_query_cache, with both a query-count guard and
+the global daily embedding-token cap.
 """
 import hashlib
 import logging
@@ -11,12 +11,13 @@ from datetime import datetime, timezone
 from sqlalchemy import select, text
 
 from buzz_news.db import async_session_factory
-from buzz_news.embedder import embed_text
+from buzz_news.embedder import active_embedding_identity, embed_batch_with_usage, estimate_tokens
+from buzz_news.embedding_budget import can_spend_embedding_tokens, record_embedding_usage
 from buzz_news.models import SearchQueryCache
 
 log = logging.getLogger("buzz_news.search")
 
-# Hard daily cap. 500 * $0.00015 ≈ $0.075/day. Over budget → FTS-only.
+# Query-count guard in addition to the global token cap. Over budget -> FTS-only.
 MAX_DAILY_EMBEDS = 500
 
 # Hybrid weights. Semantic favored slightly because user queries are
@@ -39,18 +40,26 @@ def _format_vector(vec) -> str:
 
 
 def _query_hash(query: str) -> str:
-    return hashlib.sha1(query.strip().lower().encode("utf-8")).hexdigest()
+    identity = active_embedding_identity()
+    raw = f"{identity.provider}:{identity.model}:{identity.dim}:{query.strip().lower()}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
 async def _get_or_create_query_embedding(query: str) -> list[float] | None:
     """Return cached embedding for query if present; otherwise embed via
-    Gemini and persist, unless the daily budget is exhausted (returns None).
+    the active provider and persist, unless the daily budget is exhausted.
     """
     h = _query_hash(query)
 
+    identity = active_embedding_identity()
+
     async with async_session_factory() as session:
         cached = await session.execute(
-            select(SearchQueryCache.embedding).where(SearchQueryCache.query_hash == h)
+            select(SearchQueryCache.embedding)
+            .where(SearchQueryCache.query_hash == h)
+            .where(SearchQueryCache.embedding_provider == identity.provider)
+            .where(SearchQueryCache.embedding_model == identity.model)
+            .where(SearchQueryCache.embedding_dim == identity.dim)
         )
         row = cached.scalar_one_or_none()
         if row is not None:
@@ -60,8 +69,12 @@ async def _get_or_create_query_embedding(query: str) -> list[float] | None:
         budget = await session.execute(
             text(
                 "SELECT COUNT(*) FROM search_query_cache "
-                "WHERE created_at >= date_trunc('day', now())"
-            )
+                "WHERE created_at >= date_trunc('day', now()) "
+                "AND embedding_provider = :provider "
+                "AND embedding_model = :model "
+                "AND embedding_dim = :dim"
+            ),
+            {"provider": identity.provider, "model": identity.model, "dim": identity.dim},
         )
         spent_today = budget.scalar() or 0
 
@@ -72,20 +85,36 @@ async def _get_or_create_query_embedding(query: str) -> list[float] | None:
         )
         return None
 
+    estimated_tokens = estimate_tokens(query)
+    if not await can_spend_embedding_tokens(identity.provider, identity.model, estimated_tokens):
+        return None
+
     try:
-        vec = embed_text(query, task_type="RETRIEVAL_QUERY").tolist()
+        embed_result = embed_batch_with_usage([query], task_type="RETRIEVAL_QUERY")
+        vec = embed_result.vectors[0].tolist()
     except Exception as e:
         log.warning(f"embed_text failed for query {query!r}: {e}")
         return None
 
+    await record_embedding_usage(embed_result.usage, "RETRIEVAL_QUERY")
+
     async with async_session_factory() as session:
         await session.execute(
             text(
-                "INSERT INTO search_query_cache (query_hash, query_text, embedding, created_at) "
-                "VALUES (:h, :t, CAST(:v AS vector), :now) "
+                "INSERT INTO search_query_cache "
+                "(query_hash, query_text, embedding, embedding_provider, embedding_model, embedding_dim, created_at) "
+                "VALUES (:h, :t, CAST(:v AS vector), :provider, :model, :dim, :now) "
                 "ON CONFLICT (query_hash) DO NOTHING"
             ),
-            {"h": h, "t": query, "v": _format_vector(vec), "now": datetime.now(timezone.utc)},
+            {
+                "h": h,
+                "t": query,
+                "v": _format_vector(vec),
+                "provider": identity.provider,
+                "model": identity.model,
+                "dim": identity.dim,
+                "now": datetime.now(timezone.utc),
+            },
         )
         await session.commit()
 
@@ -97,7 +126,7 @@ async def hybrid_search(query: str, lang: str = "en", limit: int = 30) -> list[d
     score combining Postgres FTS rank and pgvector cosine similarity.
 
     Falls back to FTS-only when the daily embedding budget is exhausted or
-    the Gemini call fails. Empty query returns []."""
+    the provider call fails. Empty query returns []."""
     query = (query or "").strip()
     if not query:
         return []
@@ -118,6 +147,9 @@ async def hybrid_search(query: str, lang: str = "en", limit: int = 30) -> list[d
                 SELECT id, 1.0 - (embedding <=> CAST(:qvec AS vector)) AS sim
                 FROM articles
                 WHERE embedding IS NOT NULL
+                  AND embedding_provider = :provider
+                  AND embedding_model = :model
+                  AND embedding_dim = :dim
                 ORDER BY embedding <=> CAST(:qvec AS vector)
                 LIMIT 50
             )
@@ -136,7 +168,15 @@ async def hybrid_search(query: str, lang: str = "en", limit: int = 30) -> list[d
             ORDER BY combined DESC
             LIMIT :limit
         """)
-        params = {"q": query, "qvec": _format_vector(qvec), "limit": limit}
+        identity = active_embedding_identity()
+        params = {
+            "q": query,
+            "qvec": _format_vector(qvec),
+            "limit": limit,
+            "provider": identity.provider,
+            "model": identity.model,
+            "dim": identity.dim,
+        }
     else:
         sql = text(f"""
             SELECT a.id, a.slug, a.title_en, a.title_hi,

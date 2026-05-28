@@ -126,8 +126,15 @@ async def cmd_preflight(args) -> int:
     errors = []
     warnings = []
 
-    if not s.GEMINI_API_KEY:
-        errors.append("GEMINI_API_KEY is required")
+    embed_provider = (s.EMBED_PROVIDER or "gemini").strip().lower()
+    if embed_provider == "openai" and not s.OPENAI_API_KEY:
+        errors.append("OPENAI_API_KEY is required when EMBED_PROVIDER=openai")
+    elif embed_provider == "gemini" and not s.GEMINI_API_KEY:
+        errors.append("GEMINI_API_KEY is required when EMBED_PROVIDER=gemini")
+    elif embed_provider not in {"openai", "gemini"}:
+        errors.append(f"Unsupported EMBED_PROVIDER={s.EMBED_PROVIDER!r}")
+    if s.GEMINI_FALLBACK_DAILY_CAP > 0 and not s.GEMINI_API_KEY:
+        warnings.append("GEMINI_API_KEY missing; Gemini writer fallback will be skipped")
     if not s.DATABASE_URL or "CHANGE_ME" in s.DATABASE_URL:
         errors.append("DATABASE_URL is not configured")
     if s.SITE_HOST == "TODO_PRE_LAUNCH":

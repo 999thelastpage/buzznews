@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from sqlalchemy import select, update  # noqa: E402
 
 from buzz_news.db import async_session_factory  # noqa: E402
-from buzz_news.embedder import embed_batch  # noqa: E402
+from buzz_news.embedder import active_embedding_identity, embed_batch_with_usage  # noqa: E402
+from buzz_news.embedding_budget import record_embedding_usage  # noqa: E402
 from buzz_news.models import Article  # noqa: E402
 
 logging.basicConfig(
@@ -49,17 +50,24 @@ async def main() -> int:
         chunk = rows[i : i + BATCH]
         texts = [f"{r.title_en}\n{r.summary_en or ''}" for r in chunk]
         try:
-            vectors = embed_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+            identity = active_embedding_identity()
+            result = embed_batch_with_usage(texts, task_type="RETRIEVAL_DOCUMENT")
+            await record_embedding_usage(result.usage, "RETRIEVAL_DOCUMENT")
         except Exception as e:
             log.error(f"embed_batch failed for chunk starting at {i}: {e}")
             continue
 
         async with async_session_factory() as session:
-            for row, vec in zip(chunk, vectors):
+            for row, vec in zip(chunk, result.vectors):
                 await session.execute(
                     update(Article)
                     .where(Article.id == row.id)
-                    .values(embedding=vec.tolist())
+                    .values(
+                        embedding=vec.tolist(),
+                        embedding_provider=identity.provider,
+                        embedding_model=identity.model,
+                        embedding_dim=identity.dim,
+                    )
                 )
             await session.commit()
 

@@ -12,7 +12,8 @@ from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source, C
 from buzz_news.writer import write_article
 from buzz_news.verifier import verify_en, verify_hi
 from buzz_news.imager import pick_image
-from buzz_news.embedder import embed_text
+from buzz_news.embedder import active_embedding_identity, embed_batch_with_usage, estimate_tokens
+from buzz_news.embedding_budget import can_spend_embedding_tokens, record_embedding_usage
 
 settings = get_settings()
 log = logging.getLogger("buzz_news.publisher")
@@ -25,6 +26,44 @@ IST = ZoneInfo("Asia/Kolkata")
 # hallucinates. Picked from corpus audit 2026-05-27: clusters with <500 chars
 # of source content produced the broken stub articles (id=222, 864, etc).
 MIN_SOURCE_CHARS_FOR_PUBLISH = 500
+REFRESH_DEBOUNCE_SECONDS = 7200
+UPDATE_DISPLAY_GRACE_SECONDS = 300
+
+
+def _as_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _should_refresh_article(
+    article_updated_at: datetime | None,
+    latest_raw_fetched_at: datetime | None,
+    now: datetime,
+    debounce_seconds: int = REFRESH_DEBOUNCE_SECONDS,
+) -> bool:
+    updated_at = _as_utc(article_updated_at)
+    latest_raw = _as_utc(latest_raw_fetched_at)
+    now = _as_utc(now) or datetime.now(timezone.utc)
+    if updated_at is None or latest_raw is None:
+        return False
+    if latest_raw <= updated_at:
+        return False
+    return (now - updated_at).total_seconds() >= debounce_seconds
+
+
+def _should_show_updated_at(
+    published_at: datetime | None,
+    updated_at: datetime | None,
+    grace_seconds: int = UPDATE_DISPLAY_GRACE_SECONDS,
+) -> bool:
+    published = _as_utc(published_at)
+    updated = _as_utc(updated_at)
+    if published is None or updated is None:
+        return False
+    return (updated - published).total_seconds() > grace_seconds
 
 
 def _ist_day_window(now_utc: datetime | None = None) -> tuple[datetime, datetime, str, str]:
@@ -201,6 +240,7 @@ def _render_article(
     related_articles: list[dict],
     published_at: datetime,
     slug: str = "",
+    updated_at: datetime | None = None,
 ) -> str:
     return _render(
         "article.html",
@@ -220,6 +260,16 @@ def _render_article(
             "sources": article_sources,
             "published_display": _format_datetime(published_at, lang),
             "published_iso": published_at.isoformat() if published_at else "",
+            "updated_display": (
+                _format_datetime(updated_at, lang)
+                if _should_show_updated_at(published_at, updated_at)
+                else ""
+            ),
+            "updated_iso": (
+                updated_at.isoformat()
+                if updated_at and _should_show_updated_at(published_at, updated_at)
+                else ""
+            ),
         },
         is_hot=is_hot,
         body_paragraphs=[p.strip() for p in body.split("\n\n") if p.strip()],
@@ -624,16 +674,46 @@ def _archive_windows(current: str, lang: str, labels: dict, today_str: str, mont
 
 async def publish_top_n(n: int = 10) -> int:
     published = 0
+    now = datetime.now(timezone.utc)
 
     async with async_session_factory() as session:
-        result = await session.execute(
+        new_result = await session.execute(
             select(Cluster)
             .where(Cluster.is_published == False)  # noqa: E712
             .where(Cluster.current_score > 0)
             .order_by(Cluster.current_score.desc())
             .limit(n)
         )
-        clusters = list(result.scalars().all())
+        latest_raw = (
+            select(
+                RawItem.cluster_id.label("cluster_id"),
+                func.max(RawItem.fetched_at).label("latest_raw_fetched_at"),
+            )
+            .group_by(RawItem.cluster_id)
+            .subquery()
+        )
+        refresh_result = await session.execute(
+            select(Cluster)
+            .join(Article, Article.cluster_id == Cluster.id)
+            .join(latest_raw, latest_raw.c.cluster_id == Cluster.id)
+            .where(Cluster.current_score > 0)
+            .where(Cluster.last_seen_at >= now - timedelta(hours=48))
+            .where(Article.updated_at <= now - timedelta(seconds=REFRESH_DEBOUNCE_SECONDS))
+            .where(latest_raw.c.latest_raw_fetched_at > Article.updated_at)
+            .order_by(Cluster.current_score.desc())
+            .limit(n)
+        )
+        new_clusters = list(new_result.scalars().all())
+        refresh_clusters = list(refresh_result.scalars().all())
+
+    clusters_by_id = {c.id: c for c in new_clusters}
+    for cluster in refresh_clusters:
+        clusters_by_id.setdefault(cluster.id, cluster)
+    clusters = sorted(
+        clusters_by_id.values(),
+        key=lambda c: float(c.current_score or 0),
+        reverse=True,
+    )[:n]
 
     for cluster in clusters:
         async with async_session_factory() as session:
@@ -644,7 +724,7 @@ async def publish_top_n(n: int = 10) -> int:
 
             if existing and existing.updated_at:
                 age = datetime.now(timezone.utc) - existing.updated_at
-                if age.total_seconds() < 7200:
+                if age.total_seconds() < REFRESH_DEBOUNCE_SECONDS:
                     continue
 
         # Thin-source gate: a cluster with almost no body/snippet text is
@@ -753,12 +833,30 @@ async def publish_top_n(n: int = 10) -> int:
 
         # Embed the article for hybrid search. Failure here must not block
         # the publish — the backfill script can fill in missing embeddings.
+        identity = active_embedding_identity()
         embedding = None
+        embedding_provider = existing.embedding_provider if existing else None
+        embedding_model = existing.embedding_model if existing else None
+        embedding_dim = existing.embedding_dim if existing else None
         try:
             text_for_embed = f"{draft.title_en}\n{draft.body_en or ''}"
-            embedding = embed_text(text_for_embed, "RETRIEVAL_DOCUMENT").tolist()
+            estimated_tokens = estimate_tokens(text_for_embed)
+            if await can_spend_embedding_tokens(identity.provider, identity.model, estimated_tokens):
+                embed_result = embed_batch_with_usage([text_for_embed], "RETRIEVAL_DOCUMENT")
+                await record_embedding_usage(embed_result.usage, "RETRIEVAL_DOCUMENT")
+                embedding = embed_result.vectors[0].tolist()
+                embedding_provider = identity.provider
+                embedding_model = identity.model
+                embedding_dim = identity.dim
+            elif existing is not None:
+                embedding = existing.embedding
         except Exception as e:
             log.warning(f"embed_text failed for cluster {cluster.id}: {e}")
+            if existing is not None:
+                embedding = existing.embedding
+
+        article_published_at = existing.published_at if existing else datetime.now(timezone.utc)
+        article_updated_at = datetime.now(timezone.utc)
 
         article_record = {
             "cluster_id": cluster.id,
@@ -771,11 +869,14 @@ async def publish_top_n(n: int = 10) -> int:
             "hero_image_credit": hero_credit,
             "category": category,
             "region": region,
-            "published_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "published_at": article_published_at,
+            "updated_at": article_updated_at,
             "verifier_passed": verifier_passed,
             "verifier_notes": verifier_notes,
             "embedding": embedding,
+            "embedding_provider": embedding_provider,
+            "embedding_model": embedding_model,
+            "embedding_dim": embedding_dim,
         }
 
         async with async_session_factory() as session:
@@ -824,8 +925,9 @@ async def publish_top_n(n: int = 10) -> int:
             hero_url, hero_credit, article_sources,
             is_hot, getattr(draft, "next_sentence", None),
             [], [],
-            datetime.now(timezone.utc),
+            article_published_at,
             slug=slug,
+            updated_at=article_updated_at,
         )
         static_dir = Path(settings.STATIC_DIR)
         out_path_en = static_dir / "en" / "article" / f"{slug}.html"
@@ -840,8 +942,9 @@ async def publish_top_n(n: int = 10) -> int:
                 hero_url, hero_credit, article_sources,
                 is_hot, getattr(draft, "next_sentence_hi", None),
                 [], [],
-                datetime.now(timezone.utc),
+                article_published_at,
                 slug=slug,
+                updated_at=article_updated_at,
             )
             out_path_hi = static_dir / "hi" / "article" / f"{slug}.html"
             out_path_hi.parent.mkdir(parents=True, exist_ok=True)

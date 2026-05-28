@@ -12,30 +12,30 @@ You are implementing BuzzNews on the VPS this file lives on. The canonical speci
 
 ## Hard "no"s (these trip up fresh models)
 
-- **No local ML models.** Embeddings go to **Gemini `gemini-embedding-001`** over the API (768-dim via `output_dimensionality`). No `sentence-transformers`, no PyTorch, no HDBSCAN, no scikit-learn, no spaCy. This is a 1.9 GB RAM constraint, not a preference. If you find yourself reaching for any of these, you're solving the wrong problem.
+- **No local ML models.** Embeddings are hosted only. Default is OpenAI `text-embedding-3-small` at 768 dimensions; Gemini `gemini-embedding-001` remains a provider/fallback option. No `sentence-transformers`, no PyTorch, no HDBSCAN, no scikit-learn, no spaCy. This is a 1.9 GB RAM constraint, not a preference. If you find yourself reaching for any of these, you're solving the wrong problem.
 - **No Docker on the VPS.** Bare metal + systemd. (Local dev is fine.)
 - **No Node.js in the BuzzNews runtime path.** OpenClaw is the only Node process and it's already running.
 - **No client-side React.** HTMX + Alpine.js, server-rendered Jinja2.
 - **No paid image generation, no hosting of news-source images.**
 
-## Writer LLM chain (current, 2026-05-25)
+## Writer LLM chain + embeddings (current, 2026-05-28)
 
 Original spec called for Gemini 2.5 Flash as primary. That has been **superseded**: the live chain in `writer.py:write_article` is now **DeepSeek → Gemini → Anthropic**.
 
 - **Primary**: DeepSeek `deepseek-v4-flash` via OpenAI-compat endpoint `https://api.deepseek.com/v1/chat/completions` (called via `httpx`, no extra SDK).
-- **Fallback 1**: Gemini `gemini-2.5-flash` — currently 429-ing because the AI Studio project spend cap is hit. Until the cap is raised at https://ai.studio/spend, every call straight-through falls to Anthropic.
+- **Fallback 1**: Gemini `gemini-2.5-flash`, capped by `GEMINI_FALLBACK_DAILY_CAP` and recorded in `llm_usage_events`.
 - **Fallback 2**: Anthropic Claude Haiku 4.5.
-- Embeddings are on Gemini **`gemini-embedding-001`** (paid GA, ~$0.15/1M input tokens) via `embedder.py`. `text-embedding-004` was the original free-tier choice but Google **removed it from the API entirely on 2026-05-25** (404 NOT_FOUND on every batch). Do **not** swap to `gemini-embedding-2` — same family but more expensive. The embedder passes `output_dimensionality=768` to keep the existing pgvector column shape.
+- **Embeddings**: OpenAI `text-embedding-3-small` via `httpx` is the default (`EMBED_PROVIDER=openai`, `OPENAI_EMBED_DIM=768`). Gemini `gemini-embedding-001` remains supported as an alternate provider. Embedding usage is recorded in `embedding_usage_events` and capped by `MAX_DAILY_EMBED_TOKENS` in runtime paths.
 
-`.env` keys: `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL=deepseek-v4-flash`, `DEEPSEEK_BASE_URL=https://api.deepseek.com`.
+`.env` keys: `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL=deepseek-v4-flash`, `DEEPSEEK_BASE_URL=https://api.deepseek.com`, `EMBED_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_DIM`, `MAX_DAILY_EMBED_TOKENS`.
 
 ## Host facts (verify, don't assume)
 
 - Tencent Lighthouse VPS, Ubuntu 24.04, **1.9 GB RAM, 2 vCPU, 40 GB disk, 10 GB swap**.
-- **OpenClaw is already running** at `~/.openclaw/` as root, on `127.0.0.1:18789`. Treat it as a fixed external tenant:
+- **OpenClaw is already running** at `~/.openclaw/` as root, on `127.0.0.1:19262`. Treat it as a fixed external tenant:
   - Do **not** install, start, stop, restart, or supervise it.
   - Do **not** create a `deploy/systemd/openclaw.service`. If the plan you remember from training shows one, you're working from a stale version — check the actual file.
-  - BuzzNews ↔ OpenClaw IPC is plain HTTP on `127.0.0.1:18789` (loopback only, no auth).
+  - BuzzNews ↔ OpenClaw IPC is plain HTTP on `127.0.0.1:19262` (loopback only, no auth).
 - Memory budget (steady-state): ~1.3 GB. Worst case with OpenClaw browser active: ~1.8 GB. Swap is the safety net, not a free-RAM extension.
 - Before installing anything heavy, run `free -h` and `df -h`. If less than 700 MB available, stop and investigate.
 
@@ -63,7 +63,7 @@ Concretely, you can develop and test all of Phases 0–7 with placeholder values
 - **`.env` ownership**: must be `ubuntu:ubuntu 600`. After any `sed -i` edit run as root, re-`sudo chown ubuntu:ubuntu .env` or both services will crash with PermissionError on next restart.
 - **Timestamps**: UTC in the DB. Convert to `Asia/Kolkata` only in templates and rollup boundaries.
 - **Logs**: `/var/log/buzz-news/<service>.log`, RotatingFileHandler (10 MB × 5).
-- **Secrets**: `.env` is `chmod 600` owned by `buzz`. Never commit it. Never echo its contents in tool output.
+- **Secrets**: `.env` is `chmod 600` owned by `ubuntu`. Never commit it. Never echo its contents in tool output.
 - **Tests**: `pytest` + `pytest-asyncio` + `respx` for httpx mocking. Use stored fixtures, not live API calls, in unit tests.
 - **PROGRESS.md** format per phase entry:
 

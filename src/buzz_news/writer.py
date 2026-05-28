@@ -319,6 +319,15 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
         prompt = prompt_template.format(sources_block=sources_block)
         title, body, category, image_query = "", "", None, None
         for provider_name, model, call in providers:
+            if provider_name == "gemini":
+                from buzz_news.llm_budget import gemini_fallback_available
+
+                if not await gemini_fallback_available():
+                    log.warning(
+                        f"gemini fallback cap reached for cluster {cluster_id} "
+                        f"lang={lang}; trying next provider"
+                    )
+                    continue
             try:
                 result_json = call(prompt)
             except Exception as e:
@@ -348,6 +357,10 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
                 f"LLM_USAGE provider={provider_name} model={model} "
                 f"cluster_id={cluster_id} lang={lang}"
             )
+            if provider_name == "gemini":
+                from buzz_news.llm_budget import record_gemini_fallback
+
+                await record_gemini_fallback(cluster_id, lang)
             title, body = cand_title, cand_body
             # Only the EN prompt asks for a category + image_query; the HI pass
             # shares both.

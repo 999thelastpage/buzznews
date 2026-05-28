@@ -4,6 +4,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CHAR,
+    Date,
     DateTime,
     FetchedValue,
     ForeignKey,
@@ -81,6 +82,9 @@ class Cluster(Base):
     primary_language: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_score: Mapped[float] = mapped_column(Numeric, default=0)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
+    centroid_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    centroid_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    centroid_dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class RawItem(Base):
@@ -97,6 +101,9 @@ class RawItem(Base):
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
+    embedding_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
     minhash: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     cluster_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("clusters.id", ondelete="SET NULL"), nullable=True)
 
@@ -139,6 +146,9 @@ class Article(Base):
     verifier_passed: Mapped[bool] = mapped_column(Boolean, default=False)
     verifier_notes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
+    embedding_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # search_vector is a STORED GENERATED column maintained by Postgres; we
     # never write to it. server_default + FetchedValue tells SQLAlchemy to
     # leave it alone on INSERT/UPDATE.
@@ -177,6 +187,35 @@ class SearchQueryCache(Base):
     query_hash: Mapped[str] = mapped_column(CHAR(40), primary_key=True)
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
+    embedding_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class EmbeddingUsageEvent(Base):
+    __tablename__ = "embedding_usage_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    usage_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    task_type: Mapped[str] = mapped_column(Text, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class LLMUsageEvent(Base):
+    __tablename__ = "llm_usage_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    usage_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    cluster_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    lang: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

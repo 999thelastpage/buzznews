@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -81,3 +81,46 @@ def test_render_home_produces_tiles():
     assert "col-span-12 md:col-span-6 lg:col-span-4" in html
     assert "Alpha headline" in html
     assert "Reuters" in html
+
+
+def test_should_refresh_article_requires_newer_raw_content_and_debounce():
+    from buzz_news.publisher import _should_refresh_article
+
+    now = datetime(2026, 5, 28, 12, tzinfo=timezone.utc)
+    updated = now - timedelta(hours=3)
+
+    assert _should_refresh_article(updated, updated + timedelta(minutes=5), now) is True
+    assert _should_refresh_article(updated, updated, now) is False
+    assert _should_refresh_article(now - timedelta(hours=1), now, now) is False
+    assert _should_refresh_article(None, now, now) is False
+    assert _should_refresh_article(updated, None, now) is False
+
+
+def test_should_show_updated_at_has_grace_window():
+    from buzz_news.publisher import _should_show_updated_at
+
+    published = datetime(2026, 5, 28, 10, tzinfo=timezone.utc)
+    assert _should_show_updated_at(published, published + timedelta(minutes=6)) is True
+    assert _should_show_updated_at(published, published + timedelta(minutes=5)) is False
+    assert _should_show_updated_at(published, published) is False
+
+
+def test_render_article_shows_updated_timestamp_only_for_material_refresh():
+    from buzz_news.publisher import _render_article
+
+    published = datetime(2026, 5, 28, 10, tzinfo=timezone.utc)
+    html = _render_article(
+        1, "en", "Updated story", "First paragraph.", "general", "GLOBAL",
+        None, None, [], False, None, [], [], published, slug="updated-story-1",
+        updated_at=published + timedelta(hours=3),
+    )
+    assert "Updated" in html
+    assert html.count('class="article__kicker-time"') == 2
+
+    html = _render_article(
+        1, "en", "Fresh story", "First paragraph.", "general", "GLOBAL",
+        None, None, [], False, None, [], [], published, slug="fresh-story-1",
+        updated_at=published + timedelta(minutes=1),
+    )
+    assert "Updated" not in html
+    assert html.count('class="article__kicker-time"') == 1
