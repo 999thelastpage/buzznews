@@ -63,7 +63,7 @@ async def main() -> int:
 
     async with async_session_factory() as session:
         result = await session.execute(
-            select(Article.id, Article.cluster_id, Article.title_en, Article.summary_en, Article.hero_image_url)
+            select(Article.id, Article.cluster_id, Article.title_en, Article.summary_en, Article.hero_image_url, Article.category)
             .order_by(Article.id.asc())
         )
         rows = result.all()
@@ -94,10 +94,14 @@ async def main() -> int:
             skipped += 1
             continue
         try:
+            # Backfill uses the category-anchored query + relevance guard (no
+            # LLM cost). The per-story image_query only exists after the writer
+            # re-runs on republish, so it's intentionally not passed here.
             hero_url, hero_credit = await pick_image(
                 r.cluster_id,
                 r.title_en,
                 r.summary_en or "",
+                category=r.category,
             )
         except Exception as e:
             log.warning(f"[{i}/{len(candidates)}] article {r.id}: pick_image raised {e}")

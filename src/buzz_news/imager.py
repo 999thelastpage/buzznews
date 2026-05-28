@@ -34,15 +34,72 @@ def _extract_keywords(title: str, body: str = "", max_keywords: int = 5) -> list
     return [k for k, _ in sorted_keywords[:max_keywords]]
 
 
-async def _search_unsplash(keywords: list[str]) -> tuple[str | None, str | None]:
+# Generic, safe visual queries per article category. Used as the fallback when
+# the writer didn't emit an image_query (off-enum, omitted, or all LLM
+# providers failed). These deliberately describe the activity/setting — never
+# proper nouns — so stock libraries return on-topic photos.
+CATEGORY_QUERIES = {
+    "sports": "sports stadium athletes competition",
+    "politics": "government parliament building flag",
+    "international": "world diplomacy flags meeting",
+    "business": "business finance office skyline",
+    "tech": "technology computer circuit data",
+    "culture": "concert festival arts performance",
+    "general": "city skyline street newspaper",
+}
+
+
+def _tokens(text: str | None) -> set[str]:
+    """Lowercased content tokens (>2 chars, no stopwords) for overlap checks."""
+    if not text:
+        return set()
+    return {
+        w for w in re.findall(r"[a-z]+", text.lower())
+        if w not in STOPWORDS and len(w) > 2
+    }
+
+
+def _is_relevant(result_text: str | None, query_terms: set[str]) -> bool:
+    """True if a candidate image's own description/tags share at least one
+    content token with the query. When there are no query terms to judge by, or
+    the candidate carries no describable text, accept (can't disprove). The
+    guard's job is to reject confidently-wrong matches (a bowling photo for a
+    football story), not to demand a perfect caption match."""
+    if not query_terms:
+        return True
+    result_terms = _tokens(result_text)
+    if not result_terms:
+        return True
+    return bool(result_terms & query_terms)
+
+
+def _build_query(
+    image_query: str | None,
+    category: str | None,
+    title: str,
+    body: str,
+) -> tuple[str, set[str]]:
+    """Choose the stock-photo search query and the terms the relevance guard
+    judges candidates against. Priority: the writer's literal visual query →
+    a generic per-category query → legacy frequency keywords."""
+    if image_query and image_query.strip():
+        terms = _tokens(image_query) | _tokens(category)
+        return image_query.strip(), terms
+    if category and category in CATEGORY_QUERIES:
+        q = CATEGORY_QUERIES[category]
+        return q, _tokens(q)
+    keywords = _extract_keywords(title, body)
+    return " ".join(keywords[:3]), set(keywords)
+
+
+async def _search_unsplash(query: str, query_terms: set[str]) -> tuple[str | None, str | None]:
     if not settings.UNSPLASH_ACCESS_KEY:
         return None, None
-    query = " ".join(keywords[:3])
-    url = f"https://api.unsplash.com/search/photos?query={query}&per_page=5&orientation=landscape"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
-                url,
+                "https://api.unsplash.com/search/photos",
+                params={"query": query, "per_page": 8, "orientation": "landscape"},
                 headers={"Authorization": f"Client-ID {settings.UNSPLASH_ACCESS_KEY}"},
             )
             if resp.status_code != 200:
@@ -50,6 +107,15 @@ async def _search_unsplash(keywords: list[str]) -> tuple[str | None, str | None]
             data = resp.json()
             results = data.get("results", [])
             for item in results:
+                # Relevance guard: skip a candidate whose own description/tags
+                # share nothing with the query.
+                desc = " ".join(filter(None, [
+                    item.get("alt_description"),
+                    item.get("description"),
+                    " ".join(t.get("title", "") for t in (item.get("tags") or [])),
+                ]))
+                if not _is_relevant(desc, query_terms):
+                    continue
                 urls = item.get("urls", {})
                 # `raw` is the original; append CDN params to cap at 1600px wide
                 # for our 1200px hero target. `full` (~2048px) and `regular`
@@ -67,15 +133,14 @@ async def _search_unsplash(keywords: list[str]) -> tuple[str | None, str | None]
     return None, None
 
 
-async def _search_pexels(keywords: list[str]) -> tuple[str | None, str | None]:
+async def _search_pexels(query: str, query_terms: set[str]) -> tuple[str | None, str | None]:
     if not settings.PEXELS_API_KEY:
         return None, None
-    query = " ".join(keywords[:3])
-    url = f"https://api.pexels.com/v1/search?query={query}&per_page=5&orientation=landscape"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
-                url,
+                "https://api.pexels.com/v1/search",
+                params={"query": query, "per_page": 8, "orientation": "landscape"},
                 headers={"Authorization": settings.PEXELS_API_KEY},
             )
             if resp.status_code != 200:
@@ -83,6 +148,8 @@ async def _search_pexels(keywords: list[str]) -> tuple[str | None, str | None]:
             data = resp.json()
             photos = data.get("photos", [])
             for item in photos:
+                if not _is_relevant(item.get("alt"), query_terms):
+                    continue
                 src = item.get("src", {})
                 # `large2x` is 1880px wide; `original` is the source upload.
                 # Avoid `large` (940px) and `medium` (350px) — too small for hero.
@@ -95,18 +162,10 @@ async def _search_pexels(keywords: list[str]) -> tuple[str | None, str | None]:
     return None, None
 
 
-async def _search_wikimedia(keywords: list[str]) -> tuple[str | None, str | None]:
-    """Search Wikipedia for an article matching keywords and return its lead
+async def _search_wikimedia(query: str, query_terms: set[str]) -> tuple[str | None, str | None]:
+    """Search Wikipedia for an article matching the query and return its lead
     image. Uses `generator=search` + `prop=pageimages` to get the actual image
     URL in a single round-trip. Returns (image_url, credit) or (None, None)."""
-    query = " ".join(keywords[:3])
-    url = (
-        "https://en.wikipedia.org/w/api.php"
-        "?action=query"
-        f"&generator=search&gsrsearch={query}&gsrlimit=5"
-        "&prop=pageimages&piprop=original"
-        "&format=json"
-    )
     headers = {
         # Wikipedia API requires a descriptive User-Agent per their policy;
         # bare httpx defaults get 403'd.
@@ -114,7 +173,18 @@ async def _search_wikimedia(keywords: list[str]) -> tuple[str | None, str | None
     }
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers) as client:
-            resp = await client.get(url)
+            resp = await client.get(
+                "https://en.wikipedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "generator": "search",
+                    "gsrsearch": query,
+                    "gsrlimit": 5,
+                    "prop": "pageimages",
+                    "piprop": "original",
+                    "format": "json",
+                },
+            )
             if resp.status_code != 200:
                 return None, None
             data = resp.json()
@@ -122,9 +192,11 @@ async def _search_wikimedia(keywords: list[str]) -> tuple[str | None, str | None
             # Pages come back as a dict keyed by page id; order by gsrindex.
             ordered = sorted(pages.values(), key=lambda p: p.get("index", 999))
             for page in ordered:
+                title = page.get("title", "")
+                if not _is_relevant(title, query_terms):
+                    continue
                 original = page.get("original") or {}
                 src = original.get("source")
-                title = page.get("title", "")
                 if src:
                     return src, f"Wikimedia Commons / {title}"
     except Exception as e:
@@ -161,34 +233,43 @@ async def pick_image(
     article_id: int,
     title: str,
     body: str = "",
+    image_query: str | None = None,
+    category: str | None = None,
 ) -> tuple[str | None, str | None]:
     static_dir = Path(settings.STATIC_DIR)
     out_dir = static_dir / "images" / str(article_id)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    keywords = _extract_keywords(title, body)
-    if not keywords:
+    # The writer's literal visual query drives the search; category is the
+    # fallback anchor; frequency keywords are the last resort. The relevance
+    # guard rejects candidates whose own description shares nothing with it.
+    query, query_terms = _build_query(image_query, category, title, body)
+    if not query.strip():
         return None, None
+    log.info(
+        f"Image search for article {article_id}: query={query!r} "
+        f"terms={sorted(query_terms)}"
+    )
 
     image_url = None
     credit = None
 
-    image_url, credit = await _search_unsplash(keywords)
+    image_url, credit = await _search_unsplash(query, query_terms)
     if image_url:
         log.info(f"Image from Unsplash for article {article_id}")
 
     if not image_url:
-        image_url, credit = await _search_pexels(keywords)
+        image_url, credit = await _search_pexels(query, query_terms)
         if image_url:
             log.info(f"Image from Pexels for article {article_id}")
 
     if not image_url:
-        image_url, credit = await _search_wikimedia(keywords)
+        image_url, credit = await _search_wikimedia(query, query_terms)
         if image_url:
             log.info(f"Image from Wikimedia for article {article_id}")
 
     if not image_url:
-        log.info(f"No image found for article {article_id}")
+        log.info(f"No relevant image found for article {article_id} (query={query!r})")
         return None, None
 
     paths = _download_and_resize(image_url, [HERO_SIZE, CARD_SIZE, THUMB_SIZE], out_dir)

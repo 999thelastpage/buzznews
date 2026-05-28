@@ -19,6 +19,7 @@ class ArticleDraft:
     title_hi: str | None
     body_hi: str | None
     category: str | None = None
+    image_query: str | None = None
 
 
 # The categories the templates know how to colour/label (_macros.html
@@ -43,6 +44,23 @@ def _validate_category(raw: str | None) -> str | None:
         return None
     cleaned = raw.strip().lower()
     return cleaned if cleaned in VALID_CATEGORIES else None
+
+
+def _validate_image_query(raw: str | None) -> str | None:
+    """Sanitize the writer's stock-photo search phrase. Returns a short,
+    whitespace-collapsed query (lowercase, <=8 words, <=80 chars) or None if
+    empty/unusable so the imager falls back to a category-anchored query.
+    Capping the length matters: stock-photo relevance degrades sharply with
+    long queries, and a runaway model response shouldn't become the query."""
+    if not raw:
+        return None
+    cleaned = " ".join(raw.strip().lower().split())
+    if not cleaned:
+        return None
+    words = cleaned.split()
+    if len(words) > 8:
+        cleaned = " ".join(words[:8])
+    return cleaned[:80] or None
 
 
 # Phrases that indicate the LLM gave up and described its own failure
@@ -144,7 +162,7 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) 
             "temperature": temperature,
             "max_output_tokens": max_tokens,
             "response_mime_type": "application/json",
-            "response_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}, "category": {"type": "string"}}, "required": ["title", "body"]},
+            "response_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}, "category": {"type": "string"}, "image_query": {"type": "string"}}, "required": ["title", "body"]},
         },
     )
     return _parse_json_tolerant(response.text)
@@ -165,11 +183,17 @@ def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 240
 EN_WRITER_PROMPT = """You are a senior news editor writing a self-contained article for a daily news site, in English. You're given several source dispatches covering the same event. Your job is to produce one polished, readable piece that someone can read on its own without clicking through to the sources.
 
 OUTPUT FORMAT:
-- Output strictly valid JSON: {{"title": string, "body": string, "category": string}}
+- Output strictly valid JSON: {{"title": string, "body": string, "category": string, "image_query": string}}
 - Output JSON only. No prose before or after.
 
 TITLE:
 - 6–12 words, sentence case, no clickbait, no question marks, no colons unless they read naturally.
+
+IMAGE_QUERY:
+- Set "image_query" to a short stock-photo search phrase (3–6 words) describing the GENERIC visual scene a photo editor would pick to illustrate this story.
+- Describe the activity, setting, or object — NEVER specific people, team names, place names, organisations, or brands. Stock-photo libraries do not index proper nouns; including them returns wrong, unrelated pictures (e.g. "Titans" returns medals, "Super Bowl" returns a bowling alley).
+- Use plain, concrete, everyday English nouns. Lowercase. No punctuation.
+- Examples: a cricket match → "cricket batsman playing in stadium"; a football transfer → "soccer players on green field"; a parliament vote → "government parliament building exterior"; a company earnings report → "corporate office buildings skyline"; a stock-market drop → "stock market trading screens"; an AI product launch → "computer servers data center".
 
 CATEGORY:
 - Set "category" to the single best fit for what the article is actually about, chosen from EXACTLY this list (lowercase, no other values):
@@ -293,7 +317,7 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
 
     for lang, prompt_template in [("en", EN_WRITER_PROMPT), ("hi", HI_WRITER_PROMPT)]:
         prompt = prompt_template.format(sources_block=sources_block)
-        title, body, category = "", "", None
+        title, body, category, image_query = "", "", None, None
         for provider_name, model, call in providers:
             try:
                 result_json = call(prompt)
@@ -325,9 +349,11 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
                 f"cluster_id={cluster_id} lang={lang}"
             )
             title, body = cand_title, cand_body
-            # Only the EN prompt asks for a category; the HI pass shares it.
+            # Only the EN prompt asks for a category + image_query; the HI pass
+            # shares both.
             if lang == "en":
                 category = _validate_category(result_json.get("category"))
+                image_query = _validate_image_query(result_json.get("image_query"))
             break
         else:
             log.error(f"All LLM providers failed/meta-errored cluster {cluster_id} lang={lang}")
@@ -336,6 +362,7 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
             draft.title_en = title
             draft.body_en = body
             draft.category = category
+            draft.image_query = image_query
         else:
             draft.title_hi = title
             draft.body_hi = body

@@ -688,11 +688,6 @@ async def publish_top_n(n: int = 10) -> int:
         verifier_notes = {"en_unverified": en_unverified, "hi_unverified": hi_unverified}
         verifier_passed = en_passed and hi_passed
 
-        # Image fetch is unconditional now — verifier is over-strict (94%
-        # rejection) and gating images on it left ~650/670 articles imageless.
-        # See project_image_gate_deferred.md.
-        hero_url, hero_credit = await pick_image(cluster.id, draft.title_en, draft.body_en)
-
         # Reuse existing slug on republish so URLs stay stable across LLM
         # title rewordings; only compute a fresh slug for brand-new articles.
         slug = existing.slug if existing else _slugify(draft.title_en, cluster.id)
@@ -709,6 +704,19 @@ async def publish_top_n(n: int = 10) -> int:
             # cluster's catalog-vote category only when the writer didn't
             # classify (off-enum, omitted, or all providers failed).
             category = draft.category or cluster_category
+
+        # Image fetch is unconditional (verifier is over-strict, 94% rejection;
+        # gating images on it left ~650/670 imageless). The writer's literal
+        # image_query drives the search and category is the fallback anchor.
+        # A stricter relevance guard can transiently reject every candidate, so
+        # don't clobber a previously-good image with None on a republish.
+        hero_url, hero_credit = await pick_image(
+            cluster.id, draft.title_en, draft.body_en,
+            image_query=draft.image_query, category=category,
+        )
+        if hero_url is None and existing is not None and existing.hero_image_url:
+            hero_url = existing.hero_image_url
+            hero_credit = existing.hero_image_credit
 
         async with async_session_factory() as session:
             rows_result = await session.execute(

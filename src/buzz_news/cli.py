@@ -84,8 +84,8 @@ async def cmd_seed_sources(args) -> int:
 
 
 async def cmd_deploy_static(args) -> int:
-    """Copy bundled static assets (robots.txt, privacy.html) into STATIC_DIR.
-    Idempotent — safe to run on every deploy."""
+    """Copy bundled static assets (robots.txt, privacy.html, js/*, favicon.*)
+    into STATIC_DIR. Idempotent — safe to run on every deploy."""
     import shutil
     from pathlib import Path
     import buzz_news as pkg
@@ -211,7 +211,8 @@ async def cmd_write_once(args) -> int:
             continue
         log.info(
             f"Wrote article for cluster {cluster.id}: "
-            f"category={draft.category} EN title='{draft.title_en}'"
+            f"category={draft.category} image_query={draft.image_query!r} "
+            f"EN title='{draft.title_en}'"
         )
         written += 1
 

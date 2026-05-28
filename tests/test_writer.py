@@ -117,3 +117,45 @@ def test_hi_prompt_does_not_request_category():
     # risks the two languages disagreeing.
     from buzz_news.writer import HI_WRITER_PROMPT
     assert "CATEGORY:" not in HI_WRITER_PROMPT
+
+
+def test_article_draft_image_query_defaults_none():
+    from buzz_news.writer import ArticleDraft
+    draft = ArticleDraft(
+        title_en="T", body_en="B", title_hi=None, body_hi=None,
+    )
+    assert draft.image_query is None
+
+
+def test_validate_image_query_normalizes():
+    from buzz_news.writer import _validate_image_query
+    assert _validate_image_query("  Cricket  Batsman  In Stadium ") == "cricket batsman in stadium"
+    assert _validate_image_query("Soccer Players On Field") == "soccer players on field"
+
+
+def test_validate_image_query_rejects_empty():
+    from buzz_news.writer import _validate_image_query
+    assert _validate_image_query(None) is None
+    assert _validate_image_query("") is None
+    assert _validate_image_query("   ") is None
+
+
+def test_validate_image_query_caps_length():
+    from buzz_news.writer import _validate_image_query
+    out = _validate_image_query(" ".join(["word"] * 20))
+    assert len(out.split()) <= 8
+    assert len(out) <= 80
+
+
+def test_en_prompt_requests_image_query():
+    from buzz_news.writer import EN_WRITER_PROMPT
+    assert '"image_query": string' in EN_WRITER_PROMPT
+    assert "IMAGE_QUERY:" in EN_WRITER_PROMPT
+    # the prompt must steer the model away from proper nouns in the query
+    assert "proper nouns" in EN_WRITER_PROMPT
+
+
+def test_hi_prompt_does_not_request_image_query():
+    from buzz_news.writer import HI_WRITER_PROMPT
+    assert "IMAGE_QUERY:" not in HI_WRITER_PROMPT
+    assert "image_query" not in HI_WRITER_PROMPT
