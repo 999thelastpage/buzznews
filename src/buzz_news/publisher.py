@@ -8,8 +8,9 @@ from sqlalchemy import delete, func, select, update
 
 from buzz_news.config import get_settings
 from buzz_news.db import async_session_factory
-from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source, ClusterScore
-from buzz_news.writer import write_article
+from buzz_news.models import Article, ArticleSource, Cluster, RawItem, Source, ClusterScore, LLMUsageEvent
+from buzz_news.llm_client import parse_provider_spec
+from buzz_news.writer import low_tier_provider_chain, revision_provider_chain, write_article
 from buzz_news.verifier import verify_en, verify_hi
 from buzz_news.imager import pick_image
 from buzz_news.embedder import active_embedding_identity, embed_batch_with_usage, estimate_tokens
@@ -77,6 +78,67 @@ def _ist_day_window(now_utc: datetime | None = None) -> tuple[datetime, datetime
     start_utc = ist_midnight.astimezone(timezone.utc)
     end_utc = start_utc + timedelta(days=1)
     return start_utc, end_utc, ist_now.strftime("%Y-%m-%d"), ist_now.strftime("%Y-%m")
+
+
+def _deepseek_allowed_so_far(now_utc: datetime | None = None) -> int:
+    cap = max(0, int(settings.DEEPSEEK_DAILY_ARTICLE_CAP or 0))
+    if cap <= 0:
+        return 0
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    ist_now = now_utc.astimezone(IST)
+    seconds = ist_now.hour * 3600 + ist_now.minute * 60 + ist_now.second
+    paced = int(cap * (seconds / 86400.0)) + 3
+    return min(cap, max(0, paced))
+
+
+def _authority_avg(cluster: Cluster) -> float:
+    try:
+        source_count = int(cluster.source_count or 0)
+        return float(cluster.authority_sum or 0) / source_count if source_count else 0.0
+    except Exception:
+        return 0.0
+
+
+def _is_deepseek_candidate(cluster: Cluster) -> bool:
+    return int(cluster.distinct_sources or 0) >= 2 or _authority_avg(cluster) >= 0.75
+
+
+async def _count_new_articles_in_ist_day(now: datetime) -> int:
+    start_utc, end_utc, _, _ = _ist_day_window(now)
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(func.count(Article.id))
+            .where(Article.published_at >= start_utc)
+            .where(Article.published_at < end_utc)
+        )
+        return int(result.scalar() or 0)
+
+
+async def _count_deepseek_first_publish_in_ist_day(now: datetime) -> int:
+    start_utc, end_utc, _, _ = _ist_day_window(now)
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(func.count(LLMUsageEvent.id))
+            .where(LLMUsageEvent.created_at >= start_utc)
+            .where(LLMUsageEvent.created_at < end_utc)
+            .where(LLMUsageEvent.provider == "deepseek")
+            .where(LLMUsageEvent.task == "first_publish")
+            .where(LLMUsageEvent.success == True)  # noqa: E712
+        )
+        return int(result.scalar() or 0)
+
+
+def _first_publish_providers(cluster: Cluster, deepseek_used_today: int, now: datetime):
+    high_provider = parse_provider_spec(settings.LLM_HIGH_TIER_PROVIDER)
+    free_chain = low_tier_provider_chain()
+    if (
+        deepseek_used_today < _deepseek_allowed_so_far(now)
+        and deepseek_used_today < int(settings.DEEPSEEK_DAILY_ARTICLE_CAP or 0)
+        and _is_deepseek_candidate(cluster)
+    ):
+        return [high_provider] + free_chain
+    return free_chain
 
 
 async def _build_source_corpus(cluster_id: int) -> str:
@@ -675,15 +737,24 @@ def _archive_windows(current: str, lang: str, labels: dict, today_str: str, mont
 async def publish_top_n(n: int = 10) -> int:
     published = 0
     now = datetime.now(timezone.utc)
+    new_articles_today = await _count_new_articles_in_ist_day(now)
+    deepseek_used_today = await _count_deepseek_first_publish_in_ist_day(now)
+    new_slots_remaining = max(0, int(settings.MAX_NEW_ARTICLES_PER_DAY or 0) - new_articles_today)
 
     async with async_session_factory() as session:
-        new_result = await session.execute(
-            select(Cluster)
-            .where(Cluster.is_published == False)  # noqa: E712
-            .where(Cluster.current_score > 0)
-            .order_by(Cluster.current_score.desc())
-            .limit(n)
-        )
+        if new_slots_remaining > 0:
+            new_result = await session.execute(
+                select(Cluster)
+                .where(Cluster.is_published == False)  # noqa: E712
+                .where(Cluster.current_score > 0)
+                .order_by(Cluster.current_score.desc())
+                .limit(min(n, new_slots_remaining))
+            )
+            new_clusters = list(new_result.scalars().all())
+        else:
+            log.info("Daily new article cap reached (%s); only revisions are eligible", settings.MAX_NEW_ARTICLES_PER_DAY)
+            new_clusters = []
+
         latest_raw = (
             select(
                 RawItem.cluster_id.label("cluster_id"),
@@ -703,7 +774,6 @@ async def publish_top_n(n: int = 10) -> int:
             .order_by(Cluster.current_score.desc())
             .limit(n)
         )
-        new_clusters = list(new_result.scalars().all())
         refresh_clusters = list(refresh_result.scalars().all())
 
     clusters_by_id = {c.id: c for c in new_clusters}
@@ -752,7 +822,23 @@ async def publish_top_n(n: int = 10) -> int:
             )
             continue
 
-        draft = await write_article(cluster.id)
+        task = "revision" if existing else "first_publish"
+        providers = (
+            revision_provider_chain()
+            if existing
+            else _first_publish_providers(cluster, deepseek_used_today, now)
+        )
+        if not providers:
+            log.warning("No LLM providers configured for cluster %s task=%s", cluster.id, task)
+            continue
+
+        draft = await write_article(
+            cluster.id,
+            providers=providers,
+            task=task,
+            existing_article=existing,
+            article_id=existing.id if existing else None,
+        )
         if not draft or not draft.body_en:
             log.warning(f"No draft for cluster {cluster.id}, skipping")
             continue
@@ -764,6 +850,17 @@ async def publish_top_n(n: int = 10) -> int:
         hi_unverified: list[str] = []
         if draft.body_hi:
             hi_passed, hi_unverified = verify_hi(draft.body_hi, draft.body_en, source_corpus)
+
+        if existing and (not draft.body_hi or not hi_passed) and existing.summary_hi:
+            draft.title_hi = existing.title_hi
+            draft.body_hi = existing.summary_hi
+            hi_passed = True
+            hi_unverified = []
+        elif not existing and (not draft.body_hi or not hi_passed):
+            draft.title_hi = None
+            draft.body_hi = None
+            hi_passed = True
+            hi_unverified = []
 
         verifier_notes = {"en_unverified": en_unverified, "hi_unverified": hi_unverified}
         verifier_passed = en_passed and hi_passed
@@ -954,6 +1051,10 @@ async def publish_top_n(n: int = 10) -> int:
         await _purge_cloudflare([f"/en/article/{slug}.html", f"/hi/article/{slug}.html"])
 
         published += 1
+        if not existing:
+            new_articles_today += 1
+            if draft.provider == "deepseek":
+                deepseek_used_today += 1
         log.info(f"Published article {cluster.id}: '{draft.title_en}' (verified={verifier_passed})")
 
     try:

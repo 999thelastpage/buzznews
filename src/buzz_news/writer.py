@@ -1,12 +1,21 @@
-import json
 import logging
 from dataclasses import dataclass
 
 from sqlalchemy import select
 
+from buzz_news.alerts import emit_alert
 from buzz_news.config import get_settings
 from buzz_news.db import async_session_factory
-from buzz_news.models import RawItem, Source
+from buzz_news.llm_budget import free_provider_available, record_llm_usage
+from buzz_news.llm_client import (
+    LLMResult,
+    ProviderSpec,
+    estimate_tokens,
+    generate_json,
+    parse_provider_list,
+    parse_provider_spec,
+)
+from buzz_news.models import Article, RawItem, Source
 
 settings = get_settings()
 log = logging.getLogger("buzz_news.writer")
@@ -20,11 +29,11 @@ class ArticleDraft:
     body_hi: str | None
     category: str | None = None
     image_query: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    hindi_valid: bool = False
 
 
-# The categories the templates know how to colour/label (_macros.html
-# cat_c/cat_k/cat_name; anything else falls back to "general"). The writer
-# is constrained to exactly these on the EN pass.
 VALID_CATEGORIES = (
     "international",
     "politics",
@@ -35,40 +44,6 @@ VALID_CATEGORIES = (
     "general",
 )
 
-
-def _validate_category(raw: str | None) -> str | None:
-    """Return the category iff it's one the templates support, else None.
-    None (not "general") so the caller can fall back to the cluster's catalog
-    category instead of silently forcing every unclassified article to general."""
-    if not raw:
-        return None
-    cleaned = raw.strip().lower()
-    return cleaned if cleaned in VALID_CATEGORIES else None
-
-
-def _validate_image_query(raw: str | None) -> str | None:
-    """Sanitize the writer's stock-photo search phrase. Returns a short,
-    whitespace-collapsed query (lowercase, <=8 words, <=80 chars) or None if
-    empty/unusable so the imager falls back to a category-anchored query.
-    Capping the length matters: stock-photo relevance degrades sharply with
-    long queries, and a runaway model response shouldn't become the query."""
-    if not raw:
-        return None
-    cleaned = " ".join(raw.strip().lower().split())
-    if not cleaned:
-        return None
-    words = cleaned.split()
-    if len(words) > 8:
-        cleaned = " ".join(words[:8])
-    return cleaned[:80] or None
-
-
-# Phrases that indicate the LLM gave up and described its own failure
-# instead of writing news. When DeepSeek's JSON output is truncated or
-# the source content is unusable, Gemini in particular will hallucinate a
-# self-referential "the automated news generation process was unable to
-# produce a comprehensive article" response. Treat these as failures and
-# fall through to the next provider.
 _META_ERROR_PATTERNS = (
     "unable to produce",
     "unable to synthesize",
@@ -86,10 +61,107 @@ _META_ERROR_PATTERNS = (
     "preventing the generation of",
 )
 
-# Explicit refusal sentinel — if the LLM judges the sources too thin to
-# write a real article, we want a clean refusal we can detect, not a
-# stub article or meta-commentary.
 INSUFFICIENT_SOURCES_SENTINEL = "__INSUFFICIENT_SOURCES__"
+
+
+BILINGUAL_WRITER_PROMPT = """You are a senior news editor writing a self-contained bilingual article for a daily news site. You're given several source dispatches covering the same event. Produce one polished English article and one natural Hindi article that can each stand alone without clicking through to sources.
+
+OUTPUT FORMAT:
+- Output strictly valid JSON: {{"title_en": string, "body_en": string, "title_hi": string, "body_hi": string, "category": string, "image_query": string}}
+- Output JSON only. No prose before or after.
+
+ENGLISH TITLE:
+- 6-12 words, sentence case, no clickbait, no question marks, no colons unless they read naturally.
+
+HINDI TITLE:
+- 6-14 words, natural Hindi, no clickbait, avoid question marks.
+
+IMAGE_QUERY:
+- Set "image_query" to a short stock-photo search phrase (3-6 words) describing the GENERIC visual scene a photo editor would pick to illustrate this story.
+- Describe the activity, setting, or object. NEVER use specific people, team names, place names, organisations, brands, or other proper nouns.
+- Use plain, concrete, everyday English nouns. Lowercase. No punctuation.
+
+CATEGORY:
+- Set "category" to the single best fit for the article, chosen from EXACTLY this list: "politics", "international", "business", "tech", "sports", "culture", "general".
+
+BODY_EN:
+- Target 280-360 words. Never under 220 words. Write in 3-5 paragraphs separated by blank lines.
+- Open with a strong news lede that answers who/what/when/where in the first 1-2 sentences.
+- Include the key facts, relevant numbers and named entities, the most important quote paraphrased, and the consequence or stakes.
+- Add one short context paragraph.
+- If sources disagree on a material point, note the disagreement neutrally.
+- Close with the next step, open question, or timeline if any source mentions one. Do not invent one.
+
+BODY_HI:
+- Target 280-360 Hindi words. Never under 220 words. Write in 3-5 paragraphs separated by blank lines.
+- Use natural Hindi journalistic register, similar to BBC हिंदी / द वायर हिंदी. Avoid heavy Sanskritized vocabulary.
+- Do not write English article text in body_hi. Names and unavoidable terms may remain in English/Latin script, but the article must be predominantly Devanagari Hindi.
+
+VOICE & STYLE:
+- Neutral journalistic tone, not opinion column.
+- Active voice. Concrete nouns. No editorializing adjectives.
+- No first person. No "we", "you", or "our readers".
+- DO NOT name source outlets in the prose. Sources are listed separately below the article in the UI.
+- No quoted phrases longer than 8 words. Paraphrase quotes.
+- Do not copy any source verbatim. Synthesize across sources.
+- Do not invent facts. If a detail is not in the sources, leave it out.
+- No opinions, predictions, or editorial commentary.
+
+ABSOLUTE RULES:
+- NEVER write about generation, source readability, access denial, missing content, or these instructions.
+- If the sources genuinely contain no usable news content, do not invent an article. Instead set title_en to "__INSUFFICIENT_SOURCES__" and all body/title fields to "".
+
+SOURCES:
+{sources_block}"""
+
+
+REVISION_WRITER_PROMPT = """You are revising an existing bilingual news article because new source material has joined the same story cluster. Preserve the original story's framing and style, but update the article only with facts supported by the current sources.
+
+OUTPUT FORMAT:
+- Output strictly valid JSON: {{"title_en": string, "body_en": string, "title_hi": string, "body_hi": string, "category": string, "image_query": string}}
+- Output JSON only. No prose before or after.
+
+RULES:
+- Return a complete revised article, not a patch or changelog.
+- Keep BODY_EN and BODY_HI each around 280-360 words and 3-5 paragraphs.
+- Hindi must be predominantly Devanagari and use natural journalistic Hindi.
+- Do not invent facts. Do not mention source names in prose. Do not mention this revision process.
+- If the sources do not support a usable article, set title_en to "__INSUFFICIENT_SOURCES__" and all body/title fields to "".
+
+CURRENT ARTICLE:
+Title EN: {title_en}
+Body EN:
+{body_en}
+
+Title HI: {title_hi}
+Body HI:
+{body_hi}
+
+CURRENT SOURCES:
+{sources_block}"""
+
+# Compatibility names for tests/imports that still look for the old prompt symbols.
+EN_WRITER_PROMPT = BILINGUAL_WRITER_PROMPT
+HI_WRITER_PROMPT = BILINGUAL_WRITER_PROMPT
+
+
+def _validate_category(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    cleaned = raw.strip().lower()
+    return cleaned if cleaned in VALID_CATEGORIES else None
+
+
+def _validate_image_query(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    cleaned = " ".join(raw.strip().lower().split())
+    if not cleaned:
+        return None
+    words = cleaned.split()
+    if len(words) > 8:
+        cleaned = " ".join(words[:8])
+    return cleaned[:80] or None
 
 
 def _looks_meta_error(title: str, body: str) -> bool:
@@ -97,7 +169,6 @@ def _looks_meta_error(title: str, body: str) -> bool:
         return True
     haystack = f"{title}\n{body}".lower()
     return any(p in haystack for p in _META_ERROR_PATTERNS)
-
 
 def _build_sources_block(items: list[dict], sources: list[dict]) -> str:
     blocks = []
@@ -114,162 +185,54 @@ def _build_sources_block(items: list[dict], sources: list[dict]) -> str:
         )
     return "\n".join(blocks)
 
-
-def _parse_json_tolerant(raw: str) -> dict:
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        from json_repair import repair_json
-        return json.loads(repair_json(raw))
+def _devanagari_ratio(text: str) -> float:
+    devanagari = sum(1 for ch in text if "ऀ" <= ch <= "ॿ")
+    latin = sum(1 for ch in text if ("a" <= ch.lower() <= "z"))
+    return devanagari / max(devanagari + latin, 1)
 
 
-def _call_deepseek(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
-    import httpx
-    if not settings.DEEPSEEK_API_KEY:
-        raise RuntimeError("DEEPSEEK_API_KEY not configured")
-    r = httpx.post(
-        f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": settings.DEEPSEEK_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
-        },
-        timeout=60.0,
-    )
-    r.raise_for_status()
-    return _parse_json_tolerant(r.json()["choices"][0]["message"]["content"])
+def is_valid_hindi(title: str | None, body: str | None, min_ratio: float = 0.35) -> bool:
+    text = f"{title or ''}\n{body or ''}".strip()
+    if not body or len(body.strip()) < 80:
+        return False
+    devanagari = sum(1 for ch in text if "ऀ" <= ch <= "ॿ")
+    if devanagari < 40:
+        return False
+    return _devanagari_ratio(text) >= min_ratio
 
 
-def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
-    from google import genai
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    response = client.models.generate_content(
-        model=settings.GEMINI_MODEL_TEXT,
-        contents=prompt,
-        config={
-            "temperature": temperature,
-            "max_output_tokens": max_tokens,
-            "response_mime_type": "application/json",
-            "response_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}, "category": {"type": "string"}, "image_query": {"type": "string"}}, "required": ["title", "body"]},
-        },
-    )
-    return _parse_json_tolerant(response.text)
+def _provider_configured(spec: ProviderSpec) -> bool:
+    if spec.provider == "deepseek":
+        return bool(settings.DEEPSEEK_API_KEY)
+    if spec.provider == "cerebras":
+        return bool(settings.CEREBRAS_API_KEY)
+    if spec.provider == "groq":
+        return bool(settings.GROQ_API_KEY)
+    if spec.provider == "gemini":
+        return bool(settings.GEMINI_API_KEY)
+    if spec.provider == "anthropic":
+        return bool(settings.ANTHROPIC_API_KEY)
+    return True
 
 
-def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
-    import anthropic
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    response = client.messages.create(
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return _parse_json_tolerant(response.content[0].text)
+def _default_first_publish_providers() -> list[ProviderSpec]:
+    providers = [parse_provider_spec(settings.LLM_HIGH_TIER_PROVIDER)]
+    providers.extend(parse_provider_list(settings.LLM_LOW_TIER_PROVIDERS))
+    return providers
 
 
-EN_WRITER_PROMPT = """You are a senior news editor writing a self-contained article for a daily news site, in English. You're given several source dispatches covering the same event. Your job is to produce one polished, readable piece that someone can read on its own without clicking through to the sources.
-
-OUTPUT FORMAT:
-- Output strictly valid JSON: {{"title": string, "body": string, "category": string, "image_query": string}}
-- Output JSON only. No prose before or after.
-
-TITLE:
-- 6–12 words, sentence case, no clickbait, no question marks, no colons unless they read naturally.
-
-IMAGE_QUERY:
-- Set "image_query" to a short stock-photo search phrase (3–6 words) describing the GENERIC visual scene a photo editor would pick to illustrate this story.
-- Describe the activity, setting, or object — NEVER specific people, team names, place names, organisations, or brands. Stock-photo libraries do not index proper nouns; including them returns wrong, unrelated pictures (e.g. "Titans" returns medals, "Super Bowl" returns a bowling alley).
-- Use plain, concrete, everyday English nouns. Lowercase. No punctuation.
-- Examples: a cricket match → "cricket batsman playing in stadium"; a football transfer → "soccer players on green field"; a parliament vote → "government parliament building exterior"; a company earnings report → "corporate office buildings skyline"; a stock-market drop → "stock market trading screens"; an AI product launch → "computer servers data center".
-
-CATEGORY:
-- Set "category" to the single best fit for what the article is actually about, chosen from EXACTLY this list (lowercase, no other values):
-  - "politics" — government, elections, parliament, policy, diplomacy within a country
-  - "international" — cross-border / world affairs, conflicts, foreign relations, global events
-  - "business" — companies, markets, economy, finance, trade, jobs
-  - "tech" — technology, software, AI, gadgets, science-of-computing, startups
-  - "sports" — any sport or competitive game (cricket, football, tennis, chess, Olympics, motorsport, etc.) and its players, matches, leagues
-  - "culture" — entertainment, film, music, arts, books, religion, lifestyle, festivals
-  - "general" — only if none of the above clearly fits
-- Pick based on the story's substance, not the publisher. One value only.
-
-BODY:
-- Target 280–360 words. Never under 220 words. Write in 3–5 paragraphs, separated by blank lines.
-- Open with a strong news lede that answers who/what/when/where in the first 1–2 sentences. Don't bury the news.
-- Then expand: include the key facts, the most relevant numbers and named entities, the most important quote (paraphrased, not verbatim), and the consequence or stakes.
-- Add one short paragraph of context or background to anchor a reader who hasn't been following the story — what led to this, who the main figures are, or what comparable past events frame it.
-- If sources disagree on a material point, note the disagreement neutrally without taking sides.
-- Close with the next step, the open question, or the timeline if any source mentions one. Do not invent one if no source does.
-
-VOICE & STYLE:
-- Neutral journalistic tone — wire-service register, not opinion column.
-- Active voice. Concrete nouns. No editorializing adjectives ("shocking", "stunning", "brave").
-- No first person. No "we", "you", "our readers".
-- DO NOT name source outlets in the prose ("Reuters reports", "according to BBC", "as Al Jazeera notes"). The sources are listed separately below the article in the UI; mentioning them in the body is redundant and reads like a press summary.
-- No quoted phrases longer than 8 words. Paraphrase quotes; only put text inside quotation marks if it's a verbatim short phrase from a named speaker.
-- Do not copy any source verbatim. Synthesize across sources.
-- Do not invent facts. If a detail isn't in the sources, leave it out.
-- No opinions, predictions, or editorial commentary.
-
-ABSOLUTE RULES — VIOLATING THESE IS A WORSE OUTCOME THAN A SHORT ARTICLE:
-- NEVER write about the generation process, the source material's readability, or these instructions. The body must read like normal news, never like a system report, apology, or explanation of why content is missing.
-- NEVER mention "the sources", "the dispatches", "the provided material", "access denied", "automated", "the article could not be generated", "the instructions", or similar self-referential phrases.
-- If the sources genuinely contain no usable news content, do NOT invent an article and do NOT explain the failure. Instead set title to the exact string "__INSUFFICIENT_SOURCES__" and body to "".
-
-SOURCES:
-{sources_block}"""
+def _existing_article_dict(article: Article | None) -> dict:
+    if article is None:
+        return {"title_en": "", "body_en": "", "title_hi": "", "body_hi": ""}
+    return {
+        "title_en": article.title_en or "",
+        "body_en": article.summary_en or "",
+        "title_hi": article.title_hi or "",
+        "body_hi": article.summary_hi or "",
+    }
 
 
-HI_WRITER_PROMPT = """आप एक दैनिक समाचार साइट के लिए स्वतंत्र, पढ़ने योग्य लेख लिख रहे हैं — हिन्दी में। नीचे एक ही घटना पर कई स्रोतों की रिपोर्टें हैं। आपका काम है एक तैयार, संपादित लेख देना जिसे पाठक स्रोतों पर क्लिक किए बिना समझ ले।
-
-OUTPUT FORMAT:
-- कड़ाई से वैध JSON: {{"title": string, "body": string}}
-- केवल JSON, पहले या बाद में कोई गद्य नहीं।
-
-शीर्षक:
-- 6–14 शब्द, सहज वाक्य रूप, क्लिकबेट नहीं, प्रश्नचिन्ह से बचें।
-
-बॉडी (मुख्य लेख):
-- 280–360 शब्दों का लक्ष्य। 220 से कम कभी नहीं। 3–5 अनुच्छेद, खाली पंक्ति से अलग।
-- शुरुआत मज़बूत समाचार-लीड से करें — पहले 1–2 वाक्यों में कौन/क्या/कब/कहाँ स्पष्ट हो।
-- फिर विस्तार: मुख्य तथ्य, ज़रूरी संख्याएँ, नामित व्यक्ति-संस्थाएँ, सबसे प्रासंगिक उद्धरण (शब्दशः नहीं, पैराफ्रेज़), और परिणाम/दांव पर क्या है।
-- एक छोटा संदर्भ-अनुच्छेद जोड़ें — पृष्ठभूमि, मुख्य पात्र, या समान बीते घटनाक्रम — ताकि अनजान पाठक भी समझे।
-- स्रोत यदि किसी तथ्य पर असहमत हों, तटस्थ रूप से लिखें।
-- अगर कोई स्रोत आगामी क़दम या समयरेखा बताता है तो उसी से समापन करें। अपने से न जोड़ें।
-
-शैली:
-- तटस्थ पत्रकार-शैली — विचार-स्तंभ नहीं। सक्रिय वाक्य, ठोस संज्ञा।
-- भारी संस्कृतनिष्ठ शब्दावली से बचें; BBC हिंदी / द वायर हिंदी की शैली अपनाएँ।
-- प्रथम पुरुष नहीं ("हम", "आप", "हमारे पाठक")।
-- स्रोत-संस्थाओं के नाम लेख के अंदर मत लिखें ("रॉयटर्स के अनुसार", "BBC के मुताबिक")। स्रोत साइट पर लेख के नीचे अलग से दिखाए जाते हैं; प्रोज़ में उन्हें दोहराना ज़रूरी नहीं।
-- 8 शब्द से लंबा कोई उद्धरण सीधे न लें। पैराफ्रेज़ करें।
-- किसी स्रोत को शब्दशः न लिखें। अलग-अलग स्रोतों के बीच संश्लेषण करें।
-- तथ्य न गढ़ें। जो स्रोत में नहीं, वो लेख में भी नहीं।
-- विचार, भविष्यवाणी या संपादकीय टिप्पणी न जोड़ें।
-
-पूर्ण नियम — इनका उल्लंघन छोटे लेख से भी बुरा है:
-- जनरेशन प्रक्रिया, स्रोत-सामग्री की पठनीयता, या इन निर्देशों के बारे में कभी न लिखें। बॉडी सामान्य समाचार जैसी पढ़नी चाहिए — सिस्टम रिपोर्ट, माफ़ी या यह बताते हुए नहीं कि सामग्री क्यों उपलब्ध नहीं।
-- "स्रोत", "डिस्पैच", "प्रदान की गई सामग्री", "access denied", "ऑटोमेटेड", "लेख तैयार नहीं हो सका", "निर्देश" — इन जैसे स्व-संदर्भी शब्द कभी न प्रयोग करें।
-- यदि स्रोतों में सचमुच कोई समाचार-योग्य सामग्री नहीं है, तो लेख न गढ़ें और विफलता समझाएँ भी नहीं। केवल title को "__INSUFFICIENT_SOURCES__" और body को "" पर सेट करें।
-
-SOURCES:
-{sources_block}"""
-
-
-async def write_article(cluster_id: int) -> ArticleDraft | None:
+async def _load_sources(cluster_id: int) -> tuple[list[dict], list[dict]]:
     async with async_session_factory() as session:
         result = await session.execute(
             select(RawItem, Source)
@@ -279,9 +242,6 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
             .order_by(Source.authority.desc())
         )
         rows = list(result.fetchall())
-
-    if not rows:
-        return None
 
     seen_sources = set()
     items = []
@@ -304,82 +264,195 @@ async def write_article(cluster_id: int) -> ArticleDraft | None:
         })
         if len(items) >= 6:
             break
+    return items, sources_info
+
+
+def _prompt_for_task(task: str, sources_block: str, existing_article: Article | None) -> str:
+    if task == "revision":
+        existing = _existing_article_dict(existing_article)
+        return REVISION_WRITER_PROMPT.format(sources_block=sources_block, **existing)
+    return BILINGUAL_WRITER_PROMPT.format(sources_block=sources_block)
+
+
+def _draft_from_result(result: LLMResult) -> tuple[ArticleDraft | None, str | None]:
+    data = result.data
+    title_en = (data.get("title_en") or data.get("title") or "").strip()
+    body_en = (data.get("body_en") or data.get("body") or "").strip()
+    title_hi = (data.get("title_hi") or "").strip()
+    body_hi = (data.get("body_hi") or "").strip()
+
+    if title_en == INSUFFICIENT_SOURCES_SENTINEL:
+        return None, "insufficient_sources"
+    if _looks_meta_error(title_en, body_en):
+        return None, "meta_error"
+
+    hindi_valid = is_valid_hindi(title_hi, body_hi)
+    if not hindi_valid:
+        title_hi = ""
+        body_hi = ""
+
+    draft = ArticleDraft(
+        title_en=title_en,
+        body_en=body_en,
+        title_hi=title_hi or None,
+        body_hi=body_hi or None,
+        category=_validate_category(data.get("category")),
+        image_query=_validate_image_query(data.get("image_query")),
+        provider=result.provider,
+        model=result.model,
+        hindi_valid=hindi_valid,
+    )
+    return draft, None
+
+
+async def write_article(
+    cluster_id: int,
+    *,
+    providers: list[ProviderSpec] | None = None,
+    task: str = "first_publish",
+    existing_article: Article | None = None,
+    article_id: int | None = None,
+) -> ArticleDraft | None:
+    items, sources_info = await _load_sources(cluster_id)
+    if not items:
+        return None
 
     sources_block = _build_sources_block(items, sources_info)
+    prompt = _prompt_for_task(task, sources_block, existing_article)
+    provider_chain = providers or _default_first_publish_providers()
+    estimated_input_tokens = estimate_tokens(prompt)
 
-    draft = ArticleDraft(title_en="", body_en="", title_hi=None, body_hi=None)
-
-    providers = [
-        ("deepseek", settings.DEEPSEEK_MODEL, _call_deepseek),
-        ("gemini", settings.GEMINI_MODEL_TEXT, _call_gemini),
-        ("anthropic", settings.ANTHROPIC_MODEL, _call_anthropic),
-    ]
-
-    for lang, prompt_template in [("en", EN_WRITER_PROMPT), ("hi", HI_WRITER_PROMPT)]:
-        prompt = prompt_template.format(sources_block=sources_block)
-        title, body, category, image_query = "", "", None, None
-        for provider_name, model, call in providers:
-            if provider_name == "gemini":
-                from buzz_news.llm_budget import gemini_fallback_available
-
-                if not await gemini_fallback_available():
-                    log.warning(
-                        f"gemini fallback cap reached for cluster {cluster_id} "
-                        f"lang={lang}; trying next provider"
-                    )
-                    continue
-            try:
-                result_json = call(prompt)
-            except Exception as e:
-                log.warning(
-                    f"{provider_name} call failed for cluster {cluster_id} "
-                    f"lang={lang}: {e}, trying next provider"
-                )
-                continue
-            cand_title = (result_json.get("title") or "").strip()
-            cand_body = (result_json.get("body") or "").strip()
-            # Clean refusal — sources truly insufficient. Don't try fallbacks.
-            if cand_title == INSUFFICIENT_SOURCES_SENTINEL:
-                log.info(
-                    f"writer refused (insufficient sources) cluster {cluster_id} "
-                    f"lang={lang} via {provider_name}"
-                )
-                break
-            # Meta-error response — the model wrote about its own failure
-            # instead of news. Reject and fall through to the next provider.
-            if _looks_meta_error(cand_title, cand_body):
-                log.warning(
-                    f"{provider_name} returned meta-error for cluster {cluster_id} "
-                    f"lang={lang}; falling through. body[:120]={cand_body[:120]!r}"
-                )
-                continue
-            log.info(
-                f"LLM_USAGE provider={provider_name} model={model} "
-                f"cluster_id={cluster_id} lang={lang}"
+    for spec in provider_chain:
+        paid_revision_fallback = task == "revision" and spec.provider not in {"cerebras", "groq"}
+        if paid_revision_fallback:
+            await emit_alert(
+                "paid_llm_revision_fallback",
+                {
+                    "provider": spec.provider,
+                    "model": spec.model,
+                    "cluster_id": cluster_id,
+                    "article_id": article_id,
+                    "estimated_input_tokens": estimated_input_tokens,
+                },
             )
-            if provider_name == "gemini":
-                from buzz_news.llm_budget import record_gemini_fallback
+        if not _provider_configured(spec):
+            log.warning(
+                "LLM provider missing API key provider=%s model=%s task=%s cluster_id=%s",
+                spec.provider,
+                spec.model,
+                task,
+                cluster_id,
+            )
+            continue
+        if not await free_provider_available(f"{spec.provider}:{spec.model}", estimated_input_tokens):
+            log.warning(
+                "LLM provider soft cap reached provider=%s model=%s task=%s cluster_id=%s",
+                spec.provider,
+                spec.model,
+                task,
+                cluster_id,
+            )
+            continue
 
-                await record_gemini_fallback(cluster_id, lang)
-            title, body = cand_title, cand_body
-            # Only the EN prompt asks for a category + image_query; the HI pass
-            # shares both.
-            if lang == "en":
-                category = _validate_category(result_json.get("category"))
-                image_query = _validate_image_query(result_json.get("image_query"))
-            break
-        else:
-            log.error(f"All LLM providers failed/meta-errored cluster {cluster_id} lang={lang}")
+        try:
+            result = generate_json(spec, prompt, max_tokens=3200)
+        except Exception as exc:
+            await record_llm_usage(
+                provider=spec.provider,
+                model=spec.model,
+                cluster_id=cluster_id,
+                article_id=article_id,
+                task=task,
+                input_tokens=estimated_input_tokens,
+                output_tokens=0,
+                success=False,
+                error_type=type(exc).__name__,
+            )
+            log.warning(
+                "%s call failed for cluster %s task=%s: %s, trying next provider",
+                spec.provider,
+                cluster_id,
+                task,
+                exc,
+            )
+            continue
 
-        if lang == "en":
-            draft.title_en = title
-            draft.body_en = body
-            draft.category = category
-            draft.image_query = image_query
-        else:
-            draft.title_hi = title
-            draft.body_hi = body
+        draft, error_type = _draft_from_result(result)
+        if draft is None:
+            await record_llm_usage(
+                provider=result.provider,
+                model=result.model,
+                cluster_id=cluster_id,
+                article_id=article_id,
+                task=task,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                success=False,
+                error_type=error_type,
+            )
+            if error_type == "insufficient_sources":
+                log.info("writer refused insufficient sources cluster=%s via %s", cluster_id, spec.provider)
+                return None
+            log.warning(
+                "%s returned invalid draft for cluster %s task=%s error=%s; trying next provider",
+                spec.provider,
+                cluster_id,
+                task,
+                error_type,
+            )
+            continue
 
-    if not draft.body_en:
-        return None
-    return draft
+        await record_llm_usage(
+            provider=result.provider,
+            model=result.model,
+            cluster_id=cluster_id,
+            article_id=article_id,
+            task=task,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            success=True,
+            error_type=None if draft.hindi_valid else "invalid_hi_suppressed",
+        )
+        log.info(
+            "LLM_USAGE provider=%s model=%s cluster_id=%s task=%s",
+            result.provider,
+            result.model,
+            cluster_id,
+            task,
+        )
+        return draft
+
+    log.error("All LLM providers failed cluster %s task=%s", cluster_id, task)
+    return None
+
+
+# Backward-compatible direct-call helpers used by older tests/scripts.
+def _call_deepseek(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
+    spec = parse_provider_spec(settings.LLM_HIGH_TIER_PROVIDER)
+    return generate_json(spec, prompt, temperature=temperature, max_tokens=max_tokens).data
+
+
+def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
+    return generate_json(
+        ProviderSpec("gemini", settings.GEMINI_MODEL_TEXT),
+        prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    ).data
+
+
+def _call_anthropic(prompt: str, temperature: float = 0.3, max_tokens: int = 2400) -> dict:
+    return generate_json(
+        ProviderSpec("anthropic", settings.ANTHROPIC_MODEL),
+        prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    ).data
+
+
+def low_tier_provider_chain() -> list[ProviderSpec]:
+    return parse_provider_list(settings.LLM_LOW_TIER_PROVIDERS)
+
+
+def revision_provider_chain() -> list[ProviderSpec]:
+    return parse_provider_list(settings.LLM_REVISION_PROVIDERS)

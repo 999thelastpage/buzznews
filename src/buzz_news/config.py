@@ -28,6 +28,28 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek-chat"
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
 
+    CEREBRAS_API_KEY: str = ""
+    CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+
+    MAX_NEW_ARTICLES_PER_DAY: int = 96
+    DEEPSEEK_DAILY_ARTICLE_CAP: int = 60
+    LLM_HIGH_TIER_PROVIDER: str = "deepseek:deepseek-v4-flash"
+    LLM_LOW_TIER_PROVIDERS: str = (
+        "cerebras:gpt-oss-120b,"
+        "groq:meta-llama/llama-4-scout-17b-16e-instruct,"
+        "groq:qwen/qwen3-32b"
+    )
+    LLM_REVISION_PROVIDERS: str = (
+        "cerebras:gpt-oss-120b,"
+        "groq:meta-llama/llama-4-scout-17b-16e-instruct,"
+        "groq:qwen/qwen3-32b,"
+        "deepseek:deepseek-v4-flash"
+    )
+    FREE_LLM_DAILY_TOKEN_SOFT_CAP: int = 900_000
+    GROQ_DAILY_TOKEN_SOFT_CAP: int = 450_000
+
     UNSPLASH_ACCESS_KEY: str = ""
     PEXELS_API_KEY: str = ""
 
@@ -57,8 +79,8 @@ class Settings(BaseSettings):
 
     FETCH_INTERVAL_MIN: int = 15
     SCORE_INTERVAL_MIN: int = 5
-    PUBLISH_INTERVAL_MIN: int = 30
-    TOP_N_PER_CYCLE: int = 10
+    PUBLISH_INTERVAL_MIN: int = 15
+    TOP_N_PER_CYCLE: int = 1
 
     RETENTION_RAW_ITEMS_DAYS: int = 90
     RETENTION_CLUSTER_SCORES_DAYS: int = 30

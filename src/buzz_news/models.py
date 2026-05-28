@@ -215,7 +215,13 @@ class LLMUsageEvent(Base):
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     cluster_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    article_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     lang: Mapped[str | None] = mapped_column(Text, nullable=True)
+    task: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    error_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

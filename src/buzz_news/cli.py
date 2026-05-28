@@ -135,6 +135,12 @@ async def cmd_preflight(args) -> int:
         errors.append(f"Unsupported EMBED_PROVIDER={s.EMBED_PROVIDER!r}")
     if s.GEMINI_FALLBACK_DAILY_CAP > 0 and not s.GEMINI_API_KEY:
         warnings.append("GEMINI_API_KEY missing; Gemini writer fallback will be skipped")
+    if not s.DEEPSEEK_API_KEY:
+        warnings.append("DEEPSEEK_API_KEY missing; high-tier writer provider will be skipped")
+    if not s.CEREBRAS_API_KEY:
+        warnings.append("CEREBRAS_API_KEY missing; Cerebras free-tier writer path will be skipped")
+    if not s.GROQ_API_KEY:
+        warnings.append("GROQ_API_KEY missing; Groq free-tier writer path will be skipped")
     if not s.DATABASE_URL or "CHANGE_ME" in s.DATABASE_URL:
         errors.append("DATABASE_URL is not configured")
     if s.SITE_HOST == "TODO_PRE_LAUNCH":
@@ -268,6 +274,51 @@ async def cmd_monthly_archive(args) -> int:
     return 0
 
 
+async def cmd_cleanup_bad_hindi(args) -> int:
+    from buzz_news.db import async_session_factory
+    from buzz_news.models import Article
+    from buzz_news.publisher import render_home_pages, render_today_pages
+    from buzz_news.writer import is_valid_hindi
+    from sqlalchemy import select, update
+
+    bad: list[tuple[int, str]] = []
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Article.id, Article.slug, Article.title_hi, Article.summary_hi)
+            .where(Article.summary_hi.is_not(None))
+        )
+        for article_id, slug, title_hi, summary_hi in result.fetchall():
+            if not is_valid_hindi(title_hi, summary_hi):
+                bad.append((article_id, slug))
+
+        for article_id, _slug in bad:
+            await session.execute(
+                update(Article)
+                .where(Article.id == article_id)
+                .values(title_hi=None, summary_hi=None)
+            )
+        await session.commit()
+
+    static_dir = Path(settings.STATIC_DIR)
+    deleted_files = 0
+    for _article_id, slug in bad:
+        out_path = static_dir / "hi" / "article" / f"{slug}.html"
+        if out_path.exists():
+            out_path.unlink()
+            deleted_files += 1
+
+    if bad:
+        await render_home_pages()
+        await render_today_pages()
+
+    log.info(
+        "cleanup-bad-hindi: nulled %s article(s), deleted %s stale HI file(s)",
+        len(bad),
+        deleted_files,
+    )
+    return 0
+
+
 async def cmd_retention_cleanup(args) -> int:
     from buzz_news.db import async_session_factory
     from buzz_news.models import RawItem, ClusterScore, BuzzEvent, SearchQueryCache
@@ -387,6 +438,7 @@ COMMANDS = {
     "today-archive": cmd_today_archive,
     "monthly-archive": cmd_monthly_archive,
     "retention-cleanup": cmd_retention_cleanup,
+    "cleanup-bad-hindi": cmd_cleanup_bad_hindi,
     "split-cluster": cmd_split_cluster,
     "run-worker": cmd_run_worker,
     "run-web": cmd_run_web,

@@ -21,7 +21,7 @@ def test_build_sources_block():
 def test_writer_prompt_has_strict_json_requirement():
     from buzz_news.writer import EN_WRITER_PROMPT
     assert "valid JSON" in EN_WRITER_PROMPT
-    assert "280–360 words" in EN_WRITER_PROMPT
+    assert "280-360 words" in EN_WRITER_PROMPT
     assert "No quoted phrases longer than 8 words" in EN_WRITER_PROMPT
     # Do NOT name source outlets in the prose — sources are listed separately.
     assert "DO NOT name source outlets" in EN_WRITER_PROMPT
@@ -112,11 +112,10 @@ def test_en_prompt_requests_category():
         assert f'"{cat}"' in EN_WRITER_PROMPT
 
 
-def test_hi_prompt_does_not_request_category():
-    # HI shares the cluster's category (taken from the EN pass); asking twice
-    # risks the two languages disagreeing.
-    from buzz_news.writer import HI_WRITER_PROMPT
-    assert "CATEGORY:" not in HI_WRITER_PROMPT
+def test_bilingual_prompt_requests_one_shared_category():
+    from buzz_news.writer import BILINGUAL_WRITER_PROMPT
+    assert "CATEGORY:" in BILINGUAL_WRITER_PROMPT
+    assert "title_hi" in BILINGUAL_WRITER_PROMPT
 
 
 def test_article_draft_image_query_defaults_none():
@@ -155,7 +154,40 @@ def test_en_prompt_requests_image_query():
     assert "proper nouns" in EN_WRITER_PROMPT
 
 
-def test_hi_prompt_does_not_request_image_query():
-    from buzz_news.writer import HI_WRITER_PROMPT
-    assert "IMAGE_QUERY:" not in HI_WRITER_PROMPT
-    assert "image_query" not in HI_WRITER_PROMPT
+def test_bilingual_prompt_requests_one_shared_image_query():
+    from buzz_news.writer import BILINGUAL_WRITER_PROMPT
+    assert "IMAGE_QUERY:" in BILINGUAL_WRITER_PROMPT
+    assert "image_query" in BILINGUAL_WRITER_PROMPT
+
+
+def test_hindi_gate_rejects_english_text():
+    from buzz_news.writer import is_valid_hindi
+    assert not is_valid_hindi("This is English", "This body is almost entirely English text and should not render on Hindi pages.")
+
+
+def test_hindi_gate_accepts_devanagari_text():
+    from buzz_news.writer import is_valid_hindi
+    body = "भारत में नई नीति पर चर्चा तेज हो गई है। " * 8
+    assert is_valid_hindi("भारत में नीति पर चर्चा", body)
+
+
+def test_revision_provider_chain_includes_deepseek_last(monkeypatch):
+    from buzz_news import writer
+
+    monkeypatch.setattr(
+        writer.settings,
+        "LLM_REVISION_PROVIDERS",
+        "cerebras:gpt-oss-120b,groq:meta-llama/llama-4-scout-17b-16e-instruct,groq:qwen/qwen3-32b,deepseek:deepseek-v4-flash",
+    )
+    chain = writer.revision_provider_chain()
+    assert [p.provider for p in chain] == ["cerebras", "groq", "groq", "deepseek"]
+    assert chain[-1].model == "deepseek-v4-flash"
+
+
+def test_default_first_publish_chain_excludes_paid_gemini_anthropic(monkeypatch):
+    from buzz_news import writer
+
+    monkeypatch.setattr(writer.settings, "LLM_HIGH_TIER_PROVIDER", "deepseek:deepseek-v4-flash")
+    monkeypatch.setattr(writer.settings, "LLM_LOW_TIER_PROVIDERS", "cerebras:gpt-oss-120b")
+    chain = writer._default_first_publish_providers()
+    assert [p.provider for p in chain] == ["deepseek", "cerebras"]

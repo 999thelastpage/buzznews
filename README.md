@@ -4,7 +4,7 @@ A multi-source news aggregation and synthesis site — English and Hindi, India-
 
 Live at **https://slow.myvnc.com/**.
 
-BuzzNews pulls from many sources (RSS + Tavily web search), clusters items about the same event, scores them for genuine importance rather than virality, synthesizes a short editorial summary per cluster with an LLM, and serves a fast server-rendered site with daily / weekly / monthly / yearly rollups.
+BuzzNews pulls from many sources (RSS + Tavily web search), clusters items about the same event, scores them for genuine importance rather than virality, synthesizes bilingual editorial articles with cost-aware LLM routing, and serves a fast server-rendered site with today/month archive pages.
 
 ## Stack
 
@@ -19,13 +19,17 @@ BuzzNews pulls from many sources (RSS + Tavily web search), clusters items about
 | Cache | Redis 7 |
 | Jobs | APScheduler (in-process, Postgres jobstore) |
 | Embeddings | Gemini `gemini-embedding-001` (768-dim) |
-| Writer LLM | DeepSeek → Gemini 2.5 Flash → Claude Haiku 4.5 (fallback chain) |
+| Writer LLM | Cost-aware routing: DeepSeek high-tier first publish; Cerebras/Groq free-tier for low-tier and revisions; DeepSeek paid revision fallback with alert |
 | Extraction | `trafilatura` + OpenClaw browser fallback (env-gated) |
 | Dedup | `datasketch` MinHash LSH |
 | TLS / proxy | Caddy 2 (auto-HTTPS) |
 | Process supervision | systemd |
 
 Hard constraints, by design: no local ML models, no Docker on the VPS, no Node in the BuzzNews runtime path, no client-side React, no paid image generation, no hosting of news-source images. Memory budget is ~1.3 GB steady-state on a 1.9 GB host.
+
+## LLM routing
+
+Publishing is capped at 96 new articles per IST day (`PUBLISH_INTERVAL_MIN=15`, `TOP_N_PER_CYCLE=1`). DeepSeek is reserved for high-tier first-publish articles, paced to 60 accepted DeepSeek first publishes per IST day. Lower-tier first publishes use the free-provider chain (`Cerebras gpt-oss-120b`, Groq Scout, Groq Qwen). Revisions use the same free-provider chain and fall back to paid DeepSeek only after all free providers fail; that fallback emits a structured alert and Telegram-compatible webhook message. Hindi output is gated before rendering so bad Hindi is suppressed rather than shown on `/hi`.
 
 ## Layout
 

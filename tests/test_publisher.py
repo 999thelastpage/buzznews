@@ -124,3 +124,39 @@ def test_render_article_shows_updated_timestamp_only_for_material_refresh():
     )
     assert "Updated" not in html
     assert html.count('class="article__kicker-time"') == 1
+
+
+def test_deepseek_candidate_uses_source_or_authority_signal():
+    from buzz_news.publisher import _is_deepseek_candidate
+
+    class C:
+        distinct_sources = 2
+        authority_sum = 0
+        source_count = 0
+
+    assert _is_deepseek_candidate(C()) is True
+
+    class HighAuthority:
+        distinct_sources = 1
+        authority_sum = 0.8
+        source_count = 1
+
+    assert _is_deepseek_candidate(HighAuthority()) is True
+
+    class Weak:
+        distinct_sources = 1
+        authority_sum = 0.5
+        source_count = 1
+
+    assert _is_deepseek_candidate(Weak()) is False
+
+
+def test_deepseek_allowed_so_far_is_paced(monkeypatch):
+    from buzz_news import publisher
+
+    monkeypatch.setattr(publisher.settings, "DEEPSEEK_DAILY_ARTICLE_CAP", 60)
+    now = datetime(2026, 5, 28, 18, 30, tzinfo=timezone.utc)  # midnight IST
+    assert publisher._deepseek_allowed_so_far(now) == 3
+
+    noon_ist = datetime(2026, 5, 29, 6, 30, tzinfo=timezone.utc)
+    assert publisher._deepseek_allowed_so_far(noon_ist) == 33

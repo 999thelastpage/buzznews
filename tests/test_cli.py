@@ -6,6 +6,7 @@ def test_cli_help():
     assert "fetch-once" in COMMANDS
     assert "run-worker" in COMMANDS
     assert "run-web" in COMMANDS
+    assert "cleanup-bad-hindi" in COMMANDS
 
 
 def test_settings_load():
