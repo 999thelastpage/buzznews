@@ -35,7 +35,6 @@ async def cmd_migrate(args) -> int:
 
 async def cmd_seed_sources(args) -> int:
     import yaml
-    from sqlalchemy import select, insert
     from pathlib import Path
 
     from buzz_news.db import async_session_factory
@@ -54,11 +53,8 @@ async def cmd_seed_sources(args) -> int:
     seeded = 0
     async with async_session_factory() as session:
         for src in sources:
-            slug = src["slug"]
-            result = await session.execute(select(Source).where(Source.slug == slug))
-            existing = result.scalar_one_or_none()
-
             values = {
+                "slug": src["slug"],
                 "name": src["name"],
                 "url": src["url"],
                 "kind": src["kind"],
@@ -70,18 +66,15 @@ async def cmd_seed_sources(args) -> int:
                 "enabled": src.get("enabled", True),
                 "extra": src.get("extra", {}),
             }
-
-            if existing:
-                await session.execute(
-                    pg_insert(Source).values(id=existing.id, **values).on_conflict_do_update(
-                        constraint="sources_slug_key",
-                        set_=values,
-                    )
+            update_cols = {k: v for k, v in values.items() if k != "slug"}
+            # Upsert keyed on slug; never sets id, so existing rows keep
+            # their id (and their fetch state: etag, fail_count, ...).
+            await session.execute(
+                pg_insert(Source).values(**values).on_conflict_do_update(
+                    constraint="sources_slug_key",
+                    set_=update_cols,
                 )
-            else:
-                values["slug"] = slug
-                await session.execute(insert(Source).values(**values))
-
+            )
             seeded += 1
 
         await session.commit()

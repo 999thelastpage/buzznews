@@ -36,6 +36,76 @@ sources:
   # — both publishers killed their public RSS in 2020-ish (HTTP 401
   # without a paid Reuters Connect / AP API key). We get wire coverage
   # via Google News (gn_in_top_en below) which aggregates them.
+  - slug: guardian_world
+    name: The Guardian — World
+    url: https://www.theguardian.com/world/rss
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.88
+  - slug: npr_news
+    name: NPR — News
+    url: https://feeds.npr.org/1001/rss.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: general
+    authority: 0.82
+  - slug: france24_en
+    name: France 24 — English
+    url: https://www.france24.com/en/rss
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: international
+    authority: 0.78
+
+  # ---------- Global specialty desks (sports / tech / culture) ----------
+  # Added 2026-05-28 to fill thin category buckets (sports was 1 feed,
+  # culture 0) and rebalance the catalog toward global coverage. All
+  # free-to-read publishers, so the normalizer's paywall guard won't
+  # trip; probed live (HTTP 200, 20-76 items each) before adding.
+  - slug: bbc_sport
+    name: BBC Sport
+    url: https://feeds.bbci.co.uk/sport/rss.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: sports
+    authority: 0.85
+  - slug: guardian_sport
+    name: The Guardian — Sport
+    url: https://www.theguardian.com/sport/rss
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: sports
+    authority: 0.80
+  - slug: the_verge
+    name: The Verge
+    url: https://www.theverge.com/rss/index.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: tech
+    authority: 0.72
+  - slug: guardian_culture
+    name: The Guardian — Culture
+    url: https://www.theguardian.com/culture/rss
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: culture
+    authority: 0.78
+  - slug: bbc_entertainment
+    name: BBC News — Entertainment & Arts
+    url: https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml
+    kind: rss
+    language: en
+    region: GLOBAL
+    category: culture
+    authority: 0.82
 
   # ---------- India-focused English ----------
   - slug: thehindu_national
