@@ -50,7 +50,7 @@ async def embed_unclustered_items() -> int:
                 )
             )
             .order_by(RawItem.fetched_at.desc())
-            .limit(500)
+            .limit(max(1, settings.RAW_EMBED_BATCH_LIMIT))
         )
         items = list(result.scalars().all())
 
@@ -282,7 +282,7 @@ async def run_once() -> int:
             .where(RawItem.embedding_model == identity.model)
             .where(RawItem.embedding_dim == identity.dim)
             .where(RawItem.cluster_id.is_(None))
-            .limit(500)
+            .limit(max(1, settings.CLUSTER_BATCH_LIMIT))
         )
         items = list(result.scalars().all())
 

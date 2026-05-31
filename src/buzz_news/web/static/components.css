@@ -215,6 +215,7 @@ img { max-width: 100%; height: auto; display: block; }
   text-align: right;
 }
 
+.article__notice { max-width: 640px; margin: 18px auto 0; padding: 12px 14px; border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink); font-size: 14px; line-height: 1.45; }
 .article__body {
   font-family: var(--serif);
   font-size: 17px;

@@ -8,6 +8,10 @@
   {{ article_head(article, is_hot, lang, labels) }}
   {{ hero(article.hero_image_url, article.hero_image_credit) }}
 
+  {% if fallback_notice %}
+  <div class="article__notice" role="status">{{ fallback_notice }}</div>
+  {% endif %}
+
   <div class="article__body">
     {% for para in body_paragraphs %}
     <p>{{ para }}</p>

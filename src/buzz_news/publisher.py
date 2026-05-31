@@ -303,6 +303,7 @@ def _render_article(
     published_at: datetime,
     slug: str = "",
     updated_at: datetime | None = None,
+    fallback_notice: str | None = None,
 ) -> str:
     return _render(
         "article.html",
@@ -335,12 +336,58 @@ def _render_article(
         },
         is_hot=is_hot,
         body_paragraphs=[p.strip() for p in body.split("\n\n") if p.strip()],
+        fallback_notice=fallback_notice,
         article_sources=article_sources,
         next_sentence=next_sentence,
         timeline_events=timeline_events,
         related_articles=related_articles,
     )
 
+
+def _render_hindi_article_or_fallback(
+    article_id: int,
+    title_en: str,
+    body_en: str,
+    title_hi: str | None,
+    body_hi: str | None,
+    category: str,
+    region: str,
+    image_url: str | None,
+    image_credit: str | None,
+    article_sources: list[dict],
+    is_hot: bool,
+    next_sentence_hi: str | None,
+    timeline_events: list[dict],
+    related_articles: list[dict],
+    published_at: datetime,
+    slug: str = "",
+    updated_at: datetime | None = None,
+) -> str:
+    if title_hi and body_hi:
+        return _render_article(
+            article_id, "hi",
+            title_hi, body_hi, category, region,
+            image_url, image_credit, article_sources,
+            is_hot, next_sentence_hi, timeline_events, related_articles,
+            published_at,
+            slug=slug,
+            updated_at=updated_at,
+        )
+
+    labels = _get_labels("hi")
+    return _render_article(
+        article_id, "hi",
+        title_en, body_en, category, region,
+        image_url, image_credit, article_sources,
+        is_hot, None, timeline_events, related_articles,
+        published_at,
+        slug=slug,
+        updated_at=updated_at,
+        fallback_notice=labels.get(
+            "article_not_available",
+            "यह लेख हिन्दी में उपलब्ध नहीं है। अंग्रेज़ी संस्करण नीचे।",
+        ),
+    )
 
 def _get_labels(lang: str) -> dict:
     from buzz_news.web.i18n import get_labels
@@ -1032,21 +1079,29 @@ async def publish_top_n(n: int = 10) -> int:
         with open(out_path_en, "w", encoding="utf-8") as f:
             f.write(rendered_en)
 
-        if draft.body_hi and hi_passed:
-            rendered_hi = _render_article(
-                art_id, "hi",
-                draft.title_hi, draft.body_hi, category, region,
-                hero_url, hero_credit, article_sources,
-                is_hot, getattr(draft, "next_sentence_hi", None),
-                [], [],
-                article_published_at,
-                slug=slug,
-                updated_at=article_updated_at,
-            )
-            out_path_hi = static_dir / "hi" / "article" / f"{slug}.html"
-            out_path_hi.parent.mkdir(parents=True, exist_ok=True)
-            with open(out_path_hi, "w", encoding="utf-8") as f:
-                f.write(rendered_hi)
+        rendered_hi = _render_hindi_article_or_fallback(
+            art_id,
+            draft.title_en,
+            draft.body_en,
+            draft.title_hi if hi_passed else None,
+            draft.body_hi if hi_passed else None,
+            category,
+            region,
+            hero_url,
+            hero_credit,
+            article_sources,
+            is_hot,
+            getattr(draft, "next_sentence_hi", None) if hi_passed else None,
+            [],
+            [],
+            article_published_at,
+            slug=slug,
+            updated_at=article_updated_at,
+        )
+        out_path_hi = static_dir / "hi" / "article" / f"{slug}.html"
+        out_path_hi.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path_hi, "w", encoding="utf-8") as f:
+            f.write(rendered_hi)
 
         await _purge_cloudflare([f"/en/article/{slug}.html", f"/hi/article/{slug}.html"])
 

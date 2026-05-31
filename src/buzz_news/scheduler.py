@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -23,15 +23,28 @@ def _wrap(name: str, coro_func):
 
 
 def build_scheduler() -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(job_defaults={
+        "coalesce": True,
+        "max_instances": 1,
+        "misfire_grace_time": 120,
+    })
 
     fetch_min = max(1, settings.FETCH_INTERVAL_MIN)
+    embed_min = max(1, settings.EMBED_INTERVAL_MIN)
+    cluster_min = max(1, settings.CLUSTER_INTERVAL_MIN)
     score_min = max(1, settings.SCORE_INTERVAL_MIN)
     publish_min = max(1, settings.PUBLISH_INTERVAL_MIN)
+    sanity_min = max(15, settings.SANITY_SWEEP_INTERVAL_MIN)
+
+    def interval(minutes: int, offset_seconds: int = 0) -> IntervalTrigger:
+        return IntervalTrigger(
+            minutes=minutes,
+            start_date=datetime.now(timezone.utc) + timedelta(seconds=offset_seconds),
+        )
 
     scheduler.add_job(
         _wrap("fetch", _run_fetch),
-        trigger=IntervalTrigger(minutes=fetch_min),
+        trigger=interval(fetch_min, 0),
         id="fetch",
         replace_existing=True,
         max_instances=1,
@@ -40,7 +53,7 @@ def build_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         _wrap("embed", _run_embed),
-        trigger=IntervalTrigger(minutes=score_min),
+        trigger=interval(embed_min, 120),
         id="embed",
         replace_existing=True,
         max_instances=1,
@@ -49,7 +62,7 @@ def build_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         _wrap("cluster", _run_cluster),
-        trigger=IntervalTrigger(minutes=score_min),
+        trigger=interval(cluster_min, 240),
         id="cluster",
         replace_existing=True,
         max_instances=1,
@@ -58,7 +71,7 @@ def build_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         _wrap("score", _run_score),
-        trigger=IntervalTrigger(minutes=score_min),
+        trigger=interval(score_min, 360),
         id="score",
         replace_existing=True,
         max_instances=1,
@@ -67,7 +80,7 @@ def build_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         _wrap("publish", _run_publish),
-        trigger=IntervalTrigger(minutes=publish_min),
+        trigger=interval(publish_min, 480),
         id="publish",
         replace_existing=True,
         max_instances=1,
@@ -75,12 +88,17 @@ def build_scheduler() -> AsyncIOScheduler:
     )
 
     scheduler.add_job(
+        _wrap("sanity_sweep", _run_sanity_sweep),
+        trigger=interval(sanity_min, 540),
+        id="sanity_sweep",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
         _wrap("monthly_archive", _run_monthly_archive),
-        trigger=IntervalTrigger(hours=1),
+        trigger=IntervalTrigger(hours=1, start_date=datetime.now(timezone.utc) + timedelta(seconds=660)),
         id="monthly_archive",
         replace_existing=True,
-        max_instances=1,
-        coalesce=True,
     )
 
     scheduler.add_job(
@@ -117,9 +135,13 @@ async def _run_embed():
 
 
 async def _run_cluster():
-    from buzz_news.clusterer import run_once, sanity_sweep
+    from buzz_news.clusterer import run_once
     count = await run_once()
     log.info(f"[scheduler] clustered {count} items")
+
+
+async def _run_sanity_sweep():
+    from buzz_news.clusterer import sanity_sweep
     merged = await sanity_sweep()
     log.info(f"[scheduler] sanity sweep merged {merged} clusters")
 

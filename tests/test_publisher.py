@@ -105,6 +105,35 @@ def test_should_show_updated_at_has_grace_window():
     assert _should_show_updated_at(published, published) is False
 
 
+def test_render_hindi_article_falls_back_to_english_without_404_gap():
+    from buzz_news.publisher import _render_hindi_article_or_fallback
+
+    published = datetime(2026, 5, 28, 10, tzinfo=timezone.utc)
+    html = _render_hindi_article_or_fallback(
+        1,
+        "English headline",
+        "English first paragraph.\n\nEnglish second paragraph.",
+        None,
+        None,
+        "general",
+        "GLOBAL",
+        None,
+        None,
+        [],
+        False,
+        None,
+        [],
+        [],
+        published,
+        slug="english-headline-1",
+    )
+
+    assert 'lang="hi"' in html
+    assert "यह लेख हिन्दी में उपलब्ध नहीं है" in html
+    assert "English first paragraph." in html
+    assert "/hi/article/english-headline-1" in html
+
+
 def test_render_article_shows_updated_timestamp_only_for_material_refresh():
     from buzz_news.publisher import _render_article
 

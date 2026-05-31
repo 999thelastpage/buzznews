@@ -19,6 +19,15 @@ logging.basicConfig(
         logging.StreamHandler(sys.stderr),
     ],
 )
+
+# Keep service logs focused on BuzzNews signals. httpx logs every request at
+# INFO and trafilatura logs ordinary extraction misses as ERROR, which made the
+# worker stderr file grow quickly and buried scheduler/pipeline events.
+for noisy_logger in ("httpx", "httpcore", "apscheduler.scheduler"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+for noisy_logger in ("trafilatura", "trafilatura.core", "trafilatura.utils"):
+    logging.getLogger(noisy_logger).setLevel(logging.CRITICAL)
+
 log = logging.getLogger("buzz_news.cli")
 
 
